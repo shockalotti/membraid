@@ -25,6 +25,7 @@ Usage:
   memory-engine history KEY [flags]        what we used to think
   memory-engine ls | cat PATH              browse the vault
   memory-engine where                      which vault and scope am I in?
+  memory-engine mcp --source NAME          run as an MCP server (stdio)
 
 Write flags:
   --kind   preference | project_param | insight | task_state   (default insight)
@@ -72,6 +73,9 @@ func run(args []string) error {
 	v := vault.Open(*vaultPath)
 
 	switch cmd {
+	case "mcp":
+		return runMCP(v, *source)
+
 	case "where":
 		fmt.Printf("vault   %s\n", v.Root())
 		fmt.Printf("scope   %s\n", scope.Resolve(*scopeFlag))
