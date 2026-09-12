@@ -12,6 +12,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"runtime"
+	"sort"
 	"strings"
 	"time"
 
@@ -33,6 +34,7 @@ Usage:
   membraid history KEY                   what we used to think
   membraid done KEY | --id ID            mark a task finished
   membraid status [--json]               where you left off + what agents learned
+  membraid context [--format claude]     the short digest an agent starts a session with
   membraid sync [--json]                 commit, pull, push, import - once
   membraid config [set KEY VALUE]        this machine's settings
   membraid timer install|remove|status   periodic sync via systemd (Linux)
@@ -84,6 +86,7 @@ func run(args []string) error {
 	id := fs.String("id", "", "row id, for done")
 	scheduled := fs.Bool("scheduled", false, "sync only if due (for the timer)")
 	quiet := fs.Bool("quiet", false, "no output on success")
+	format := fs.String("format", "text", "context output: text, or claude (a SessionStart hook payload)")
 	if err := fs.Parse(permute(fs, rest)); err != nil {
 		return err
 	}
@@ -326,6 +329,27 @@ func run(args []string) error {
 			return nil
 		})
 
+	case "context":
+		// A session-start hook must never break the session it runs in: any
+		// failure produces an empty digest and exit 0, never an error the
+		// harness would show or act on.
+		text := ""
+		_ = withIndex(v, cfg, func(ix *index.Index) error {
+			var err error
+			text, err = buildContext(ix, scope.Resolve(*scopeFlag), scope.Name(""))
+			return err
+		})
+		if *format == "claude" {
+			return json.NewEncoder(os.Stdout).Encode(map[string]any{
+				"hookSpecificOutput": map[string]any{
+					"hookEventName":     "SessionStart",
+					"additionalContext": text,
+				},
+			})
+		}
+		fmt.Print(text)
+		return nil
+
 	case "sync":
 		if *scheduled {
 			due, why := syncDue(v, cfg)
@@ -397,6 +421,91 @@ func run(args []string) error {
 	default:
 		return fmt.Errorf("unknown command %q (try --help)", cmd)
 	}
+}
+
+// buildContext is what an agent knows when a session starts: open tasks here,
+// what has been decided and learned, and what is waiting in other projects.
+//
+// Small on purpose. The whole memory would flood the context window and bury
+// the few things that matter; this is the digest, and memory_search is there
+// for everything else.
+func buildContext(ix *index.Index, sc, name string) (string, error) {
+	const maxItem = 240
+	clip := func(s string) string {
+		s = strings.Join(strings.Fields(s), " ")
+		if len(s) > maxItem {
+			return s[:maxItem-3] + "..."
+		}
+		return s
+	}
+	names, _ := ix.ScopeNames()
+	label := func(id string) string {
+		if n, ok := names[id]; ok {
+			return n
+		}
+		return id
+	}
+
+	doing, err := ix.Recent(sc, []string{index.KindTaskState}, 8)
+	if err != nil {
+		return "", err
+	}
+	learned, err := ix.Recent(sc, []string{index.KindPreference, index.KindProjectParam, index.KindInsight}, 12)
+	if err != nil {
+		return "", err
+	}
+	everywhere, err := ix.Recent("*", []string{index.KindTaskState}, 50)
+	if err != nil {
+		return "", err
+	}
+	here := map[string]bool{}
+	for _, t := range doing {
+		here[t.ID] = true
+	}
+	elsewhere := map[string]int{}
+	for _, t := range everywhere {
+		if !here[t.ID] {
+			elsewhere[label(t.Scope)]++
+		}
+	}
+
+	var b strings.Builder
+	project := name
+	if sc == index.ScopeShared {
+		project = "no project (shared memory only)"
+	}
+	fmt.Fprintf(&b, "## Membraid memory - %s\n\n", project)
+	b.WriteString("Shared memory across the user's agents and machines. What follows is a digest; ")
+	b.WriteString("use memory_search for anything else, memory_write to record, memory_done when a task finishes.\n")
+
+	if len(doing) > 0 {
+		b.WriteString("\n### Where the user left off\n")
+		for _, t := range doing {
+			fmt.Fprintf(&b, "- %s (%s, id %s)\n", clip(t.Content), t.Source, t.ID)
+		}
+	}
+	if len(learned) > 0 {
+		b.WriteString("\n### Known here\n")
+		for _, h := range learned {
+			key := ""
+			if h.Key != "" {
+				key = " " + h.Key
+			}
+			fmt.Fprintf(&b, "- [%s%s] %s\n", h.Kind, key, clip(h.Content))
+		}
+	}
+	if len(elsewhere) > 0 {
+		var parts []string
+		for p, n := range elsewhere {
+			parts = append(parts, fmt.Sprintf("%s (%d)", p, n))
+		}
+		sort.Strings(parts)
+		fmt.Fprintf(&b, "\nOpen tasks in other projects: %s.\n", strings.Join(parts, ", "))
+	}
+	if len(doing) == 0 && len(learned) == 0 {
+		b.WriteString("\nNothing is recorded for this project yet.\n")
+	}
+	return b.String(), nil
 }
 
 // withIndex opens the index, brings in anything another process or machine has

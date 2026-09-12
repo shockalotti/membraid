@@ -54,6 +54,9 @@ func TestMCPStdioRoundTrip(t *testing.T) {
 	if len(byID) != 5 {
 		t.Errorf("want 5 responses for the 5 id-bearing requests, got %d", len(byID))
 	}
+	if ins, _ := result(t, byID[1])["instructions"].(string); !strings.Contains(ins, "memory_done") || !strings.Contains(ins, "secrets") {
+		t.Errorf("initialize must carry usage instructions (task lifecycle, no secrets), got %q", ins)
+	}
 	if got := result(t, byID[1])["protocolVersion"]; got != "2025-06-18" {
 		t.Errorf("protocolVersion should echo the client: %v", got)
 	}

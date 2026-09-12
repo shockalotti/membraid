@@ -222,6 +222,52 @@ it for:
 It reads `membraid status --json` and acts only by running `membraid`
 commands. If the panel and the CLI ever disagree, the CLI is right.
 
+## How agents use it
+
+Tools on their own are passive: an agent only touches memory if it thinks to.
+Two things make it active, and both are set up once.
+
+**Every session starts knowing where you left off.** A short digest - open
+tasks in this project, what is known here, open tasks elsewhere - is put in
+front of the model before your first message. It is a digest, not a dump:
+the whole memory would bury the few things that matter.
+
+```sh
+membraid context        # see exactly what an agent starts with
+```
+
+- **Claude Code** - a `SessionStart` hook in `~/.claude/settings.json`:
+
+  ```json
+  {
+    "hooks": {
+      "SessionStart": [
+        { "hooks": [ { "type": "command",
+                       "command": "/home/you/go/bin/membraid context --format claude 2>/dev/null || true",
+                       "timeout": 10 } ] }
+      ]
+    }
+  }
+  ```
+
+- **OpenCode** - a plugin at `~/.config/opencode/plugins/membraid.js` (source in
+  `opencode-plugin/`). It uses `experimental.chat.system.transform`, which
+  OpenCode marks experimental; if it is ever renamed the plugin goes quiet
+  and the instructions below still apply.
+
+The digest never breaks a session: an unusable vault produces an empty digest,
+not an error.
+
+**Every harness is told when to write.** The MCP server hands harnesses
+instructions when they connect, which they place in the system prompt: write
+when the user corrects you or a decision is made, key anything that can
+change, record unfinished work as a task and mark it done, never store
+secrets. It ships inside membraid, so there is nothing to install per harness.
+
+What neither can do is decide *what is worth remembering* for the model. If
+*What your agents learned* in the widget stays empty after a week, the habits
+need work, not the plumbing.
+
 ## The tools an agent sees
 
 | Tool | What it does |

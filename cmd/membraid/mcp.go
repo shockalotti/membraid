@@ -152,7 +152,8 @@ func (s *mcpServer) dispatch(req rpcRequest) {
 		s.reply(req.ID, map[string]any{
 			"protocolVersion": p.ProtocolVersion,
 			"capabilities":    map[string]any{"tools": map[string]any{}},
-			"serverInfo":      map[string]any{"name": "membraid", "version": "0.2.0"},
+			"serverInfo":      map[string]any{"name": "membraid", "version": "0.3.0"},
+			"instructions":    serverInstructions,
 		})
 	case "notifications/initialized", "initialized":
 	case "tools/list":
@@ -189,6 +190,30 @@ func (s *mcpServer) text(id json.RawMessage, body string, isError bool) {
 		"isError": isError,
 	})
 }
+
+// serverInstructions is returned in the MCP initialize result, which harnesses
+// place in the system prompt. It is the one place guidance reaches every
+// harness at once, with nothing to install per harness - so it carries the
+// habits, and the tool descriptions carry the mechanics.
+//
+// Kept short: it is in the prompt of every session.
+const serverInstructions = `membraid is the user's shared memory across every agent they use and every machine they work on. What you record here, their other agents will see.
+
+Read:
+- Before asking the user something they may already have told an agent, or starting work on a project, call memory_search.
+- To check one specific fact, memory_get with its key is cheapest.
+
+Write (memory_write) when:
+- the user states a preference or corrects how you work - kind preference, usually scope "shared"
+- a decision is made, or you learn a concrete value for the project (deploy target, versions, conventions) - kind project_param
+- you discover something non-obvious that would save a future session time - kind insight
+- work is left unfinished at the end of a session - kind task_state, so the next session can pick it up
+
+Keys: give one whenever the subject can change - a later write with the same key replaces the old answer instead of competing with it. Dotted lowercase, general to specific: editor.theme, deploy.target, task.auth-fix.
+
+Tasks: every task_state should have a key. Call memory_done when the task is finished; an open task is shown to the user as where they left off.
+
+Do not record: routine chatter, anything already in the code or git history, or secrets. Memory is synced to a git remote - never store passwords, tokens, API keys or credentials.`
 
 const keyGuidance = "Give a `key` whenever the fact has a subject that can change: a later " +
 	"write with the same key replaces this one instead of competing with it. " +
