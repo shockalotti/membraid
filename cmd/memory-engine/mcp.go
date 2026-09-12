@@ -8,9 +8,9 @@ import (
 	"os"
 	"strings"
 
-	"github.com/wynne/memory-engine/internal/index"
-	"github.com/wynne/memory-engine/internal/scope"
-	"github.com/wynne/memory-engine/internal/vault"
+	"github.com/shockalotti/memory-engine/internal/index"
+	"github.com/shockalotti/memory-engine/internal/scope"
+	"github.com/shockalotti/memory-engine/internal/vault"
 )
 
 // MCP over stdio is newline-delimited JSON-RPC 2.0 on stdin and stdout.

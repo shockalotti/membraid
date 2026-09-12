@@ -4,7 +4,7 @@ import (
 	"path/filepath"
 	"testing"
 
-	"github.com/wynne/memory-engine/internal/wirelog"
+	"github.com/shockalotti/memory-engine/internal/wirelog"
 )
 
 func newIndex(t *testing.T) *Index {

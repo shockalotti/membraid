@@ -3,7 +3,7 @@
 ## Install, once
 
 ```sh
-go install github.com/wynne/memory-engine/cmd/memory-engine@latest
+go install github.com/shockalotti/memory-engine/cmd/memory-engine@latest
 memory-engine init
 ```
 
