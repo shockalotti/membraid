@@ -1,0 +1,24 @@
+{
+  "schemaVersion": 1,
+  "id": "shockalotti.membraid",
+  "name": "Membraid",
+  "version": "0.1.0",
+  "author": "shockalotti",
+  "license": "MIT",
+  "description": "Shared agent memory: where you left off, and what your agents learned.",
+  "kinds": ["bar-widget"],
+  "activation": "on-demand",
+  "entryPoints": { "barWidget": "Panel.qml" },
+  "barWidget": {
+    "displayName": "Membraid",
+    "description": "One brain across every harness. Click for where you left off and what your agents have been learning.",
+    "category": "AI",
+    "aliases": ["membraid", "memory"],
+    "allowMultiple": false,
+    "defaults": { "refreshIntervalSec": 60, "binary": "" },
+    "schema": [
+      { "key": "refreshIntervalSec", "type": "integer", "label": "Refresh interval (seconds)", "min": 10, "max": 900, "step": 10, "defaultValue": 60 },
+      { "key": "binary", "type": "string", "label": "membraid binary", "defaultValue": "", "description": "Leave blank to search ~/go/bin, /usr/local/bin and /usr/bin." }
+    ]
+  }
+}
