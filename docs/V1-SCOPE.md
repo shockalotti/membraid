@@ -50,22 +50,48 @@ Curate, and you get a trust tier on top. The habit is upside, never a
 prerequisite - and any feature that only pays off if someone maintains it is a
 feature for the 2%, so it ships last or not at all.
 
+## What v1 is actually testing
+
+Not "is the memory good." **Is the coherence worth having.**
+
+The situation this exists for: Claude Code, Codex, OpenCode, Grok, Hermes,
+OpenClaw - none of them talk to each other. Two machines, Windows and Omarchy.
+Work on one thing Monday, something else Thursday. Keeping that coherent is
+the hard part, and the daily cost of not doing it is not a wrong fact retrieved
+six months later, it is opening a terminal and not knowing where you were.
+
+So v1 is one shared brain across every harness and both machines, and nothing
+more until that is proven useful.
+
+**Cross-machine costs nothing.** The vault is a git repo. `git pull` is the
+sync protocol. No code.
+
 ## v1 build order
 
-Each slice is useful on its own and testable before the next starts.
+Reordered around coherence. Each slice is useful alone and testable before the
+next starts; the goal is the **usable** line below, not the bottom of the table.
 
 | # | Slice | SPEC ref | Why now |
 |---|---|---|---|
-| 1 | Wire log: line types, append, replay | §3.4, §5.3 | **done** - the only non-rebuildable artifact, so it is built and tested first |
-| 2 | Vault: markdown + frontmatter, `init` | §4 | The source of truth. Files are the simple-interaction story |
-| 3 | Hot index: `memories` + `concepts` + FTS5 | §5.1, §5.2 | The working set |
-| 4 | **Keyed supersession** | §6.2, §6.3 | The validated core. Independently confirmed by MemStrata (arXiv 2606.26511) |
-| 5 | Retrieval: scope filter, RRF, decay | §7.2 | Where "better with use" is actually delivered |
-| 6 | stdio MCP server + Claude Code | §10, §14 | First real user |
-| 7 | Distillation | §8 | Consolidation; produces drafts whether or not anyone promotes them |
-| 8 | Sweep | §9 | Bounded store, zero maintenance |
+| 1 | Wire log | §3.4, §5.3 | **done** - the only non-rebuildable artifact, so it is built and tested first |
+| 2 | Vault: markdown, frontmatter, `init` | §4 | **done** - the source of truth, and the whole simple-interaction story |
+| 3 | Hot index: tables + FTS5 | §5.1, §5.2 | Search is what makes one brain feel like one brain |
+| 4 | **Keyed supersession** | §6.2, §6.3 | Cheap, and without it the shared brain holds five contradictory opinions |
+| 5 | stdio MCP: write, search, get | §10 | The surface every harness speaks |
+| 6 | Wire into Claude Code, Codex, OpenCode | §14 | **<- usable here.** Stop and use it |
 
-Single process. Local only. One client at a time. No daemon, no shim.
+Then, and only when the store is big enough to hurt:
+
+| # | Slice | SPEC ref | Wait for |
+|---|---|---|---|
+| 7 | Decay in ranking | §7.2 | Search results getting noisy |
+| 8 | Distillation | §8 | Enough repetition to consolidate |
+| 9 | Sweep | §9 | The store growing unpleasantly |
+
+Slices 7-9 are the quality layer. They make memory better. They do not make
+seven tools into one brain, so they are not what v1 is testing.
+
+Single process. Local only. One client at a time.
 
 ## Deliberately deferred
 
@@ -90,16 +116,23 @@ rules). Everything above can change freely; that cannot.
 
 ## How v1 is judged
 
-Not by feature count. After a month of daily use:
+By whether it makes the day easier. After two weeks of daily use across at
+least two harnesses and both machines:
 
-1. **Do supersession chains grow?** If every chain is length 1, the `key`
-   convention did not survive contact with real agents and distillation never
-   fires. Tune or rethink §6.2.
-2. **Does retrieval stay sharp as the store grows?** Decay either works or the
-   store degrades like every other memory system.
-3. **Is the store bounded without anyone tending it?** Sweep either runs or the
-   zero-maintenance claim is false.
+1. **Did you stop re-explaining yourself?** Something told to Claude Code on
+   Monday should be there for Codex on Thursday. If it is not, the shared brain
+   is not shared.
+2. **Did `git pull` on the other machine just work?** If cross-machine
+   continuity needs thought, it is not continuity.
+3. **Did you ever open the vault directly?** Not to curate - just to look
+   something up, or delete something wrong. If the files never earn a visit,
+   markdown-as-truth is decoration and Engram is the better answer.
+4. **Did the store stay coherent?** If `deploy.target` has five live values,
+   keyed supersession is not firing and slice 4 needs work.
 
-Note what is absent: nothing here requires a human to promote a draft. If
-curation turns out to be something you do, good. The system is not allowed to
-need it.
+None of this measures memory quality, and that is deliberate. Quality is what
+slices 7-9 buy, and buying it before coherence is proven is building the wrong
+thing carefully.
+
+If after two weeks the answer is "I did not notice it", that is a real result.
+Stop, and use Engram.
