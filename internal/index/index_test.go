@@ -4,7 +4,7 @@ import (
 	"path/filepath"
 	"testing"
 
-	"github.com/shockalotti/memory-engine/internal/wirelog"
+	"github.com/shockalotti/membraid/internal/wirelog"
 )
 
 func newIndex(t *testing.T) *Index {
@@ -169,6 +169,6 @@ type countingHandler struct {
 	last   wirelog.WriteLine
 }
 
-func (c *countingHandler) Write(l wirelog.WriteLine) error { c.writes++; c.last = l; return nil }
+func (c *countingHandler) Write(l wirelog.WriteLine) error         { c.writes++; c.last = l; return nil }
 func (c *countingHandler) Distill(wirelog.DistillLine) error       { return nil }
 func (c *countingHandler) Checkpoint(wirelog.CheckpointLine) error { return nil }

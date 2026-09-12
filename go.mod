@@ -1,4 +1,4 @@
-module github.com/shockalotti/memory-engine
+module github.com/shockalotti/membraid
 
 go 1.25.0
 

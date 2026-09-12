@@ -3,14 +3,14 @@
 ## Install, once
 
 ```sh
-go install github.com/shockalotti/memory-engine/cmd/memory-engine@latest
-memory-engine init
+go install github.com/shockalotti/membraid/cmd/membraid@latest
+membraid init
 ```
 
-`init` creates `~/.memory/vault` and `~/.memory/index.db`. **Run it once, ever.**
+`init` creates `~/.membraid/vault` and `~/.membraid/index.db`. **Run it once, ever.**
 Not per project.
 
-If `memory-engine: command not found`, `~/go/bin` is not on your PATH:
+If `membraid: command not found`, `~/go/bin` is not on your PATH:
 
 ```sh
 echo 'export PATH="$PATH:$HOME/go/bin"' >> ~/.bashrc && source ~/.bashrc
@@ -22,8 +22,8 @@ A project is a **column value**, not a directory. Scope resolves automatically
 from the git root you are standing in, so you almost never type `--scope`:
 
 ```sh
-cd ~/Projects/api && memory-engine where
-  vault   /home/you/.memory/vault
+cd ~/Projects/api && membraid where
+  vault   /home/you/.membraid/vault
   scope   api-3f8a1c20
 ```
 
@@ -39,12 +39,12 @@ preference, a rule you always want applied.
 The vault is a git repo. That is the whole sync protocol.
 
 ```sh
-cd ~/.memory/vault && git init && git add -A && git commit -m "memory"
+cd ~/.membraid/vault && git init && git add -A && git commit -m "memory"
 git remote add origin <your-private-repo> && git push -u origin main
 ```
 
-On the other machine: `git clone <repo> ~/.memory/vault`, then
-`memory-engine init` is **not** needed - but the index is rebuilt from the vault
+On the other machine: `git clone <repo> ~/.membraid/vault`, then
+`membraid init` is **not** needed - but the index is rebuilt from the vault
 and wire log, which live in the repo, so nothing is lost.
 
 > Keep it private. Your memory is your notes.
@@ -60,7 +60,7 @@ memory records which agent wrote what, so give each one its own name.
 {
   "mcpServers": {
     "memory": {
-      "command": "memory-engine",
+      "command": "membraid",
       "args": ["mcp", "--source", "claude-code"]
     }
   }
@@ -74,7 +74,7 @@ memory records which agent wrote what, so give each one its own name.
   "mcp": {
     "memory": {
       "type": "local",
-      "command": ["memory-engine", "mcp", "--source", "opencode"],
+      "command": ["membraid", "mcp", "--source", "opencode"],
       "enabled": true
     }
   }
@@ -87,7 +87,7 @@ memory records which agent wrote what, so give each one its own name.
 {
   "mcpServers": {
     "memory": {
-      "command": "memory-engine",
+      "command": "membraid",
       "args": ["mcp", "--source", "grok"]
     }
   }
@@ -118,10 +118,10 @@ history with the agent that wrote it.
 Scripts, cron, a harness nobody has written yet:
 
 ```sh
-memory-engine write "deploy target is railway" --key deploy.target --kind project_param
-memory-engine search "deploy"
-memory-engine get deploy.target
-memory-engine history deploy.target
+membraid write "deploy target is railway" --key deploy.target --kind project_param
+membraid search "deploy"
+membraid get deploy.target
+membraid history deploy.target
 ```
 
 ## Read it without any of this
@@ -129,7 +129,7 @@ memory-engine history deploy.target
 That is the point:
 
 ```sh
-cd ~/.memory/vault
+cd ~/.membraid/vault
 grep -ri "deploy" .
 $EDITOR rules/never-force-push.md
 rm facts/something-wrong.md

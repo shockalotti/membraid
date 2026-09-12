@@ -11,7 +11,7 @@ import (
 // Drives the built binary the way a harness does: newline-delimited JSON-RPC
 // on stdin, one JSON message per line on stdout, diagnostics on stderr.
 func TestMCPStdioRoundTrip(t *testing.T) {
-	bin := filepath.Join(t.TempDir(), "memory-engine")
+	bin := filepath.Join(t.TempDir(), "membraid")
 	if out, err := exec.Command("go", "build", "-o", bin, ".").CombinedOutput(); err != nil {
 		t.Fatalf("build: %v\n%s", err, out)
 	}

@@ -10,7 +10,7 @@ import (
 
 	_ "modernc.org/sqlite"
 
-	"github.com/shockalotti/memory-engine/internal/wirelog"
+	"github.com/shockalotti/membraid/internal/wirelog"
 )
 
 // Kinds are a closed set (SPEC §6.1). The choice is load-bearing: kind is part

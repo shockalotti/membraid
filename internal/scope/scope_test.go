@@ -34,7 +34,7 @@ func TestDerivesFromGitRootNotCwd(t *testing.T) {
 }
 
 func TestPriorityOrder(t *testing.T) {
-	t.Setenv("MEMORY_SCOPE", "from-env")
+	t.Setenv("MEMBRAID_SCOPE", "from-env")
 	if got := Resolve("explicit-wins"); got != "explicit-wins" {
 		t.Errorf("explicit must win: %s", got)
 	}

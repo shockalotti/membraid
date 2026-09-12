@@ -84,7 +84,7 @@ reads as though curation is required is describing the 2% case.
 
 **In scope:**
 
-- The `memory-engine` Go binary: a **daemon** (engine core, hot index, cold
+- The `membraid` Go binary: a **daemon** (engine core, hot index, cold
   vault, wire log, retrieval, distillation, sweep, MCP server, REST API) plus a
   thin **stdio shim** used as the MCP entry point. *(v1 ships a single process
   with neither daemon nor shim; see `V1-SCOPE.md`.)*
@@ -126,7 +126,7 @@ read-modify-write, races across processes. This is a whole bug class.
 
 The stdio entry point is therefore **not** the engine. It is a thin shim that:
 
-1. Checks for a running daemon on the unix socket `~/.memory/engine.sock`;
+1. Checks for a running daemon on the unix socket `~/.membraid/engine.sock`;
 2. Spawns the daemon if it is not up;
 3. Proxies stdio <-> unix socket.
 
@@ -139,7 +139,7 @@ before M1, so no write path needs cross-process locking.
 
 - **Spawn race.** Two shims start together, both find no socket, both attempt
   to spawn a daemon. The daemon takes an **exclusive flock** on
-  `~/.memory/daemon.lock` before binding the socket; the loser retries
+  `~/.membraid/daemon.lock` before binding the socket; the loser retries
   connecting in a short loop (100ms, 5 retries), by which time the winner is
   bound.
 - **Stale socket after a crash.** The socket file exists but connect returns
@@ -158,8 +158,8 @@ before M1, so no write path needs cross-process locking.
   that is the daemon's job under the flock.
 - **Windows.** `AF_UNIX` exists on Windows 10+ but Go's support is uneven and
   file-permission semantics differ. **The named fallback is loopback TCP** with
-  a port file (`~/.memory/engine.port`) and a random bearer token
-  (`~/.memory/engine.token`); the shim reads both and connects over TCP.
+  a port file (`~/.membraid/engine.port`) and a random bearer token
+  (`~/.membraid/engine.token`); the shim reads both and connects over TCP.
   The failure modes in this section are **not simply "identical"** here, and
   saying they are is what hides the one difference that matters: a unix socket
   path cannot be taken over by an unrelated program, but **a TCP port can be
@@ -186,13 +186,13 @@ before M1, so no write path needs cross-process locking.
   it to that connection for its lifetime. Every write on the connection is
   stamped from the handshake, never from a per-call argument. `scope_hint` is
   the shim's own resolution of steps 2 then 3 of the §17 ladder (the
-  `--scope`/`MEMORY_SCOPE` pin, falling back to the cwd slug); the daemon then
+  `--scope`/`MEMBRAID_SCOPE` pin, falling back to the cwd slug); the daemon then
   applies step 1, the hint, step 4 (its own configured default), and step 5
   (`unscoped`), in that order - the ladder exactly as §17 numbers it, which
   since v1.8 is also the order it is executed in. The Windows loopback path
   carries the **same frame** but not the same opening move: there the daemon
   speaks first with its nonce echo (see the Windows bullet above), and only
-  once that verifies does the shim authenticate with `~/.memory/engine.token`
+  once that verifies does the shim authenticate with `~/.membraid/engine.token`
   and send this hello frame.
 - **Version skew across an upgrade.** `idle_timeout` defaults to `0`, so the
   daemon is *designed* to outlive every client - including the binary upgrade
@@ -253,7 +253,7 @@ network.
 |---|---|---|
 | Role | Working set, fast retrieval | Durable truth, human curation |
 | Tech | SQLite + FTS5 | Markdown + YAML frontmatter |
-| Location | `~/.memory/index.db` | `~/.memory/vault/` (git) |
+| Location | `~/.membraid/index.db` | `~/.membraid/vault/` (git) |
 | Precision | Machine timestamps, confidence, chains | Human-readable dates |
 | Owner | Engine (machine) | Human (curated) |
 
@@ -286,17 +286,17 @@ permanently. Therefore:
   linear history. Growth is deliberately bounded in practice (~7MB/year at 100
   writes/day); this is a design decision, not an accident waiting to be
   "fixed."
-- `memory-engine reindex` rebuilds the whole hot index by replaying the wire
+- `membraid reindex` rebuilds the whole hot index by replaying the wire
   log faithfully (§3.4), then re-mirroring vault concepts. This is the escape
   hatch for every divergence bug. Reindex is a second writer, so it takes the
-  **same exclusive flock** on `~/.memory/daemon.lock` that the daemon holds
+  **same exclusive flock** on `~/.membraid/daemon.lock` that the daemon holds
   from spawn until exit - **non-blocking**: if the flock is held, a resident
   daemon owns the index and `reindex` refuses with a clear message ("stop the
   daemon, reindex, start it again") rather than racing it on git
   `index.lock`. The upgrade path never trips this: there the old daemon shuts
   down before the new one's open-time rebuild (§5.3), so no manual stop is
   involved.
-- SQLite runs in WAL mode. `memory-engine backup` produces a consistent copy of
+- SQLite runs in WAL mode. `membraid backup` produces a consistent copy of
   index + vault + wire log - and consistency across three artifacts a live
   daemon is writing does not come free. A plain file copy of `index.db` under
   WAL is **torn**: committed frames live in the `-wal` sidecar until a
@@ -654,7 +654,7 @@ mirror follows it on the next watcher pass or `reindex`, not as a separate
 mirror trigger. A human deletion or edit in Obsidian leaves a ghost until the
 next refresh or `reindex`. **Known limitation until M9 (watcher):** between M3
 and M9, the real workflow for human edits is "edit in Obsidian, then run
-`memory-engine reindex`." Stated here so it is a known limitation, not a bug
+`membraid reindex`." Stated here so it is a known limitation, not a bug
 report.
 
 All machine-grade bookkeeping lives in SQLite and nowhere else: precise
@@ -1246,18 +1246,18 @@ and verified to stay inside the vault root before any read or write.
 ### Local-first (default)
 
 - The daemon runs as a sidecar. Each stdio MCP client spawns a shim that
-  connects to (or spawns) the daemon over `~/.memory/engine.sock` (§3.1).
+  connects to (or spawns) the daemon over `~/.membraid/engine.sock` (§3.1).
 - REST on `127.0.0.1`.
-- `~/.memory/index.db` + `~/.memory/vault/` (a git repo).
+- `~/.membraid/index.db` + `~/.membraid/vault/` (a git repo).
 - Zero config for the common case. One binary on disk, two entry modes
-  (`memory-engine shim` and `memory-engine daemon`).
+  (`membraid shim` and `membraid daemon`).
 
 ### Remote (opt-in)
 
 > **Deferred past v1.** Local only.
 
 
-- Same engine, `memory-engine daemon --http :8080`.
+- Same engine, `membraid daemon --http :8080`.
 - MCP over **Streamable HTTP** (the current MCP transport; "HTTP+SSE" is the
   deprecated predecessor) and REST, both behind bearer auth over **TLS** (§11).
   Clients talk to the daemon directly (no shim; scope is passed explicitly or
@@ -1316,16 +1316,16 @@ DSH." One server, N clients.
 
 ## 15. Configuration
 
-Defaults, overridable via a config file (`~/.memory/config.yaml`), flags, or env.
+Defaults, overridable via a config file (`~/.membraid/config.yaml`), flags, or env.
 
 | Key | Default | Notes |
 |---|---|---|
-| `vault_path` | `~/.memory/vault` | Cold source of truth. |
-| `index_path` | `~/.memory/index.db` | Hot index. |
-| `socket_path` | `~/.memory/engine.sock` | Shim<->daemon socket (local mode). |
-| `port_path` | `~/.memory/engine.port` | Loopback fallback on Windows (§3.1). |
-| `lock_path` | `~/.memory/daemon.lock` | Exclusive flock guarding daemon spawn (§3.1) and the `reindex` escape hatch (§3.3). |
-| `token_path` | `~/.memory/engine.token` | Local loopback connection token (§3.1). |
+| `vault_path` | `~/.membraid/vault` | Cold source of truth. |
+| `index_path` | `~/.membraid/index.db` | Hot index. |
+| `socket_path` | `~/.membraid/engine.sock` | Shim<->daemon socket (local mode). |
+| `port_path` | `~/.membraid/engine.port` | Loopback fallback on Windows (§3.1). |
+| `lock_path` | `~/.membraid/daemon.lock` | Exclusive flock guarding daemon spawn (§3.1) and the `reindex` escape hatch (§3.3). |
+| `token_path` | `~/.membraid/engine.token` | Local loopback connection token (§3.1). |
 | `idle_timeout` | `0` | Daemon shutdown after no connected shim for this long; `0` = stay resident (§3.1). |
 | `distill_every` | `30m` (min `5m`) | Distillation cadence. |
 | `sweep_every` | `168h` (weekly) | Cleanup cadence. |
@@ -1366,7 +1366,7 @@ wrapped it.
 
 | M | Deliverable | Acceptance |
 |---|---|---|
-| M0 | Go module + vault skeleton + wire log + **daemon/shim split** + **scope semantics** | `memory-engine init` creates vault + git + index. Concept file matches §4. `scope`, `source`, and `key` columns exist; all three wire-log line types (§3.4) defined. Shim spawns daemon on `~/.memory/engine.sock` (flock-guarded); two shims share one daemon, no lock collisions. On the Windows loopback path the port file carries pid + nonce, the daemon speaks first, and the shim withholds its token until the nonce echoes (§3.1). Scope ladder (§17) implemented in its written order (explicit, shim pin, shim cwd, daemon default, `unscoped`), `*` and any requested `unscoped` rejected on write, warning on first fallthrough; concept frontmatter carries `scope` and `key`. A spawned daemon that exits before binding surfaces its reason and fails the connection instead of looping (§3.1). |
+| M0 | Go module + vault skeleton + wire log + **daemon/shim split** + **scope semantics** | `membraid init` creates vault + git + index. Concept file matches §4. `scope`, `source`, and `key` columns exist; all three wire-log line types (§3.4) defined. Shim spawns daemon on `~/.membraid/engine.sock` (flock-guarded); two shims share one daemon, no lock collisions. On the Windows loopback path the port file carries pid + nonce, the daemon speaks first, and the shim withholds its token until the nonce echoes (§3.1). Scope ladder (§17) implemented in its written order (explicit, shim pin, shim cwd, daemon default, `unscoped`), `*` and any requested `unscoped` rejected on write, warning on first fallthrough; concept frontmatter carries `scope` and `key`. A spawned daemon that exits before binding surfaces its reason and fails the connection instead of looping (§3.1). |
 | M1 | Hot index (memories + concepts mirrors + FTS5) + keyed supersession + `reindex` | `memory_write`/`memory_search` work; supersession fires on exact `(scope, kind, key)` match - `source` excluded - closing *every* match inside a transaction, guarded by the partial unique index; every close sets both pointers (`superseded_by` on the closed row, `supersedes` on the new one) with `idx_memories_key_all` and `idx_memories_superseded_by` present; keys normalized (§6.3); fuzzy fallback at `fuzzy_supersede_threshold` only; key lookup via `memory_search`/`memory_get`. `reindex` restores a wiped index faithfully from vault + wire log (write, distill, checkpoint), setting both pointers from the `superseded` array and restoring the concepts mirror's retrieval state from the checkpoint as well, by path then `(scope, type, key)`, an ambiguous fallback match skipping rather than guessing (§3.4); `reindex` takes the same exclusive `daemon.lock` flock non-blocking and refuses with a reason if a resident daemon holds it (§3.3). Every write appends and flushes its wire-log line before committing the SQLite transaction (§3.3). candidate_k + RRF + decay ranking in place with the `min_concept_results` floor; `last_retrieved` moves for fusion survivors and every exact lookup, never for maintenance or diagnostic reads (§7.2 table); exact key lookups span `concepts` as well as `memories`. On open, `PRAGMA user_version` older than the binary triggers a rebuild by `reindex`, newer refuses to open (§5.3). `reindex` refuses while a daemon holds the flock; `backup` uses the online backup API and captures index, then log, then vault, whole lines only, and a restore replaces the vault's embedded `.hot` with the captured log rather than appending to it (§3.3); `init` refuses on an existing vault or index (§3.3). |
 | M2 | MCP server (stdio shim) + Claude Code adapter | Claude Code connects through the shim; the connection handshake (§3.1) carries `protocol_version`, `source`, `session_ref` and the scope hint, and rows are stamped from it rather than from call arguments; a `protocol_version` mismatch is refused and the newer shim respawns the daemon (§3.1); adapter hook injects search results into prompts. |
 | M3 | Cold vault proposal + mirror sync + **git commits** | `memory_propose` writes a draft and **commits it** (path-scoped, structured message; log.md digest updated by the same handler). Every git-running and vault-mutating job - propose, the wire-log commit, and later distill, sweep and the watcher - runs under the single maintenance lock (§3.1); a scheduled job that finds it held skips its tick. Concepts surface via the mirror. |
@@ -1402,19 +1402,19 @@ wrapped it.
    literal `*` bucket would be a row no ordinary query can reach and only a
    maintenance sweep would ever find. The rejection applies to the
    **resolved** scope, not just the parameter: a shim launched with
-   `--scope "*"` or `MEMORY_SCOPE="*"` would otherwise mint a literal `*`
+   `--scope "*"` or `MEMBRAID_SCOPE="*"` would otherwise mint a literal `*`
    bucket through the hint (step 2) with no parameter passing through the
    check at all. The write/propose handler validates the scope the ladder
    resolves to - `*` is never a stored scope, however it arrives.
    **`unscoped` is validated by the same rule, pointing the other way:** it may
    be *reached* - step 5 below is the only way in - but never *requested*, not
-   by parameter, not by `--scope`/`MEMORY_SCOPE`, not by the daemon's
+   by parameter, not by `--scope`/`MEMBRAID_SCOPE`, not by the daemon's
    configured default. The bucket's entire worth is that its size means
    "something is misconfigured" (§9 reports it, `memory_stats` surfaces it), so
    a caller that can write there deliberately can forge the one diagnostic this
    design offers about itself, and the quarantine stops being evidence of
    anything. A requested `unscoped` is refused exactly like a requested `*`.
-2. The `--scope` launch flag or `MEMORY_SCOPE` env on the shim. Claude Code
+2. The `--scope` launch flag or `MEMBRAID_SCOPE` env on the shim. Claude Code
    does not guarantee the cwd it launches MCP servers with (especially for
    user-scoped config), so cwd derivation is a heuristic and users need a way
    to pin it.

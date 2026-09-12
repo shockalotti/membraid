@@ -268,7 +268,7 @@ second door. Changes and why they were necessary:
 1. **`reindex` is gated on the daemon's flock (§3.3, §16 M1, §15).** The
    rebuild is the escape hatch for every divergence bug, and it is also a
    second writer with no gate: the daemon holds an exclusive flock on
-   `~/.memory/daemon.lock` from spawn until exit, `idle_timeout` defaults to
+   `~/.membraid/daemon.lock` from spawn until exit, `idle_timeout` defaults to
    `0`, so a daemon is almost always resident when the manual escape hatch is
    used, and a `reindex` that races it collides on git `index.lock` exactly
    like the two-process collision §3.1 spends its opening paragraph on.
@@ -304,7 +304,7 @@ second door. Changes and why they were necessary:
 4. **The `*` write rejection is applied to the resolved scope (§17 step 1,
    §16 M0).** R8-37 rejected `*` on the explicit `scope` parameter, but the
    ladder resolves scope in the daemon, not from the per-call parameter: a
-   shim launched with `--scope "*"` / `MEMORY_SCOPE="*"` pins a literal `*`
+   shim launched with `--scope "*"` / `MEMBRAID_SCOPE="*"` pins a literal `*`
    scope through the hint with no parameter passing through the check. The
    write/propose handler now validates the resolved scope after the ladder;
    `*` is never a stored bucket, however it arrives.

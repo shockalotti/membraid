@@ -23,7 +23,7 @@ var nonSlug = regexp.MustCompile(`[^a-z0-9]+`)
 // Resolve picks the scope for a call, in priority order:
 //
 //  1. an explicit --scope
-//  2. MEMORY_SCOPE in the environment
+//  2. MEMBRAID_SCOPE in the environment
 //  3. the current project, derived from the git root (or cwd)
 //  4. shared
 //
@@ -34,7 +34,7 @@ func Resolve(explicit string) string {
 	if s := strings.TrimSpace(explicit); s != "" {
 		return s
 	}
-	if s := strings.TrimSpace(os.Getenv("MEMORY_SCOPE")); s != "" {
+	if s := strings.TrimSpace(os.Getenv("MEMBRAID_SCOPE")); s != "" {
 		return s
 	}
 	if s := FromDir(""); s != "" {

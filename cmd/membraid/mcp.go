@@ -8,9 +8,9 @@ import (
 	"os"
 	"strings"
 
-	"github.com/shockalotti/memory-engine/internal/index"
-	"github.com/shockalotti/memory-engine/internal/scope"
-	"github.com/shockalotti/memory-engine/internal/vault"
+	"github.com/shockalotti/membraid/internal/index"
+	"github.com/shockalotti/membraid/internal/scope"
+	"github.com/shockalotti/membraid/internal/vault"
 )
 
 // MCP over stdio is newline-delimited JSON-RPC 2.0 on stdin and stdout.
@@ -52,7 +52,7 @@ func runMCP(v *vault.Vault, source string) error {
 	defer closeIx()
 
 	s := &mcpServer{ix: ix, source: source, out: json.NewEncoder(os.Stdout)}
-	fmt.Fprintf(os.Stderr, "memory-engine: mcp ready (vault %s, source %s)\n", v.Root(), source)
+	fmt.Fprintf(os.Stderr, "membraid: mcp ready (vault %s, source %s)\n", v.Root(), source)
 
 	in := bufio.NewScanner(os.Stdin)
 	in.Buffer(make([]byte, 0, 64*1024), 8*1024*1024)
@@ -90,7 +90,7 @@ func (s *mcpServer) dispatch(req rpcRequest) {
 		s.reply(req.ID, map[string]any{
 			"protocolVersion": p.ProtocolVersion,
 			"capabilities":    map[string]any{"tools": map[string]any{}},
-			"serverInfo":      map[string]any{"name": "memory-engine", "version": "0.1.0"},
+			"serverInfo":      map[string]any{"name": "membraid", "version": "0.1.0"},
 		})
 
 	case "notifications/initialized", "initialized":
@@ -124,7 +124,7 @@ func (s *mcpServer) reply(id json.RawMessage, result any) {
 
 func (s *mcpServer) fail(id json.RawMessage, code int, msg string) {
 	if len(id) == 0 {
-		fmt.Fprintln(os.Stderr, "memory-engine:", msg)
+		fmt.Fprintln(os.Stderr, "membraid:", msg)
 		return
 	}
 	_ = s.out.Encode(rpcResponse{JSONRPC: "2.0", ID: id, Error: &rpcError{Code: code, Message: msg}})

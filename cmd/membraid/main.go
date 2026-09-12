@@ -1,4 +1,4 @@
-// Command memory-engine is the CLI. v1 is a single process: no daemon, no
+// Command membraid is the CLI. v1 is a single process: no daemon, no
 // shim, no socket (see docs/V1-SCOPE.md).
 package main
 
@@ -9,23 +9,23 @@ import (
 	"path/filepath"
 	"strings"
 
-	"github.com/shockalotti/memory-engine/internal/index"
-	"github.com/shockalotti/memory-engine/internal/scope"
-	"github.com/shockalotti/memory-engine/internal/vault"
-	"github.com/shockalotti/memory-engine/internal/wirelog"
+	"github.com/shockalotti/membraid/internal/index"
+	"github.com/shockalotti/membraid/internal/scope"
+	"github.com/shockalotti/membraid/internal/vault"
+	"github.com/shockalotti/membraid/internal/wirelog"
 )
 
-const usage = `memory-engine - one memory, shared by every agent you use
+const usage = `membraid - one memory, shared by every agent you use
 
 Usage:
-  memory-engine init                       create a vault
-  memory-engine write CONTENT [flags]      record a fact
-  memory-engine search QUERY [flags]       search current memory
-  memory-engine get KEY [flags]            the live answer for one subject
-  memory-engine history KEY [flags]        what we used to think
-  memory-engine ls | cat PATH              browse the vault
-  memory-engine where                      which vault and scope am I in?
-  memory-engine mcp --source NAME          run as an MCP server (stdio)
+  membraid init                       create a vault
+  membraid write CONTENT [flags]      record a fact
+  membraid search QUERY [flags]       search current memory
+  membraid get KEY [flags]            the live answer for one subject
+  membraid history KEY [flags]        what we used to think
+  membraid ls | cat PATH              browse the vault
+  membraid where                      which vault and scope am I in?
+  membraid mcp --source NAME          run as an MCP server (stdio)
 
 Write flags:
   --kind   preference | project_param | insight | task_state   (default insight)
@@ -34,7 +34,7 @@ Write flags:
   --scope  project slug, or "shared" to surface everywhere.
            Defaults to the current git project, so you rarely pass it.
            Searches always see your project plus shared.
-  --source which agent is writing (default: $MEMORY_SOURCE or "cli")
+  --source which agent is writing (default: $MEMBRAID_SOURCE or "cli")
 
 Any agent that can run a shell command can use this. That is the point: not
 every harness speaks MCP, and all of them can shell out.
@@ -42,7 +42,7 @@ every harness speaks MCP, and all of them can shell out.
 The vault is plain markdown. You never need this tool to read or fix it - grep
 it, open it in your editor, delete a file that is wrong.
 
-Default vault: ~/.memory/vault (MEMORY_VAULT), index alongside it.
+Default vault: ~/.membraid/vault (MEMBRAID_VAULT), index alongside it.
 `
 
 func main() {
@@ -122,7 +122,7 @@ func run(args []string) error {
 
 	case "write":
 		if fs.NArg() < 1 {
-			return fmt.Errorf("write needs content, e.g. memory-engine write \"deploy target is railway\" --key deploy.target --kind project_param")
+			return fmt.Errorf("write needs content, e.g. membraid write \"deploy target is railway\" --key deploy.target --kind project_param")
 		}
 		ix, closeIx, err := openIndex(v)
 		if err != nil {
@@ -175,7 +175,7 @@ func run(args []string) error {
 
 	case "get":
 		if fs.NArg() < 1 {
-			return fmt.Errorf("get needs a key, e.g. memory-engine get editor.theme")
+			return fmt.Errorf("get needs a key, e.g. membraid get editor.theme")
 		}
 		ix, closeIx, err := openIndex(v)
 		if err != nil {
@@ -231,7 +231,7 @@ func run(args []string) error {
 //
 // Go's flag package stops parsing at the first non-flag argument, so
 //
-//	memory-engine write "deploy target is railway" --key deploy.target
+//	membraid write "deploy target is railway" --key deploy.target
 //
 // silently ignores every flag and folds them into the content. That is the
 // natural way to type the command, so the CLI has to accept it rather than
@@ -285,19 +285,19 @@ func openIndex(v *vault.Vault) (*index.Index, func(), error) {
 }
 
 func defaultSource() string {
-	if s := os.Getenv("MEMORY_SOURCE"); s != "" {
+	if s := os.Getenv("MEMBRAID_SOURCE"); s != "" {
 		return s
 	}
 	return "cli"
 }
 
 func defaultVault() string {
-	if p := os.Getenv("MEMORY_VAULT"); p != "" {
+	if p := os.Getenv("MEMBRAID_VAULT"); p != "" {
 		return p
 	}
 	home, err := os.UserHomeDir()
 	if err != nil {
-		return ".memory/vault"
+		return ".membraid/vault"
 	}
-	return filepath.Join(home, ".memory", "vault")
+	return filepath.Join(home, ".membraid", "vault")
 }

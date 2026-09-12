@@ -15,9 +15,12 @@ type collector struct {
 	checkpoints []CheckpointLine
 }
 
-func (c *collector) Write(l WriteLine) error           { c.writes = append(c.writes, l); return nil }
-func (c *collector) Distill(l DistillLine) error       { c.distills = append(c.distills, l); return nil }
-func (c *collector) Checkpoint(l CheckpointLine) error { c.checkpoints = append(c.checkpoints, l); return nil }
+func (c *collector) Write(l WriteLine) error     { c.writes = append(c.writes, l); return nil }
+func (c *collector) Distill(l DistillLine) error { c.distills = append(c.distills, l); return nil }
+func (c *collector) Checkpoint(l CheckpointLine) error {
+	c.checkpoints = append(c.checkpoints, l)
+	return nil
+}
 
 func writeFile(t *testing.T, body string) string {
 	t.Helper()
