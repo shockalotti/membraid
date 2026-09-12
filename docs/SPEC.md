@@ -24,9 +24,24 @@ read). And the acceptance-row lag that rounds 6 and 13 each fixed one instance
 of is closed as a class: §16 now says acceptance rows restate the body, never
 extend it, and the section wins on conflict.
 
+> **Read `V1-SCOPE.md` first.** This document is the *design reference*: complete,
+> reviewed, and correct about things v1 will not build for months. `V1-SCOPE.md`
+> says what is actually being built, in what order, and what is deferred. Where
+> the two disagree about *scope*, V1-SCOPE wins; where they disagree about *how a
+> mechanism works*, this document wins.
+
 A standalone, framework-agnostic durable memory system. Plain markdown vault
 (source of truth, human-maintainable) + a hot SQLite index (fast working set).
 Served to any agent over MCP or REST. Local-first by default, hostable remotely.
+
+**Design premise (corrected after the review loop closed):** the sections below
+describe a human who curates - reading drafts, promoting them to `stable`,
+reading sweep reports. **Most people will never do that.** The engine is
+therefore designed so that everything load-bearing happens without them:
+supersession, decay, distillation and sweep all run unattended, and curating
+nothing leaves a store that is still consolidated, still decaying, and still
+greppable. Promotion is an affordance, never a prerequisite. Any rule below that
+reads as though curation is required is describing the 2% case.
 
 ---
 
@@ -71,7 +86,8 @@ Served to any agent over MCP or REST. Local-first by default, hostable remotely.
 
 - The `memory-engine` Go binary: a **daemon** (engine core, hot index, cold
   vault, wire log, retrieval, distillation, sweep, MCP server, REST API) plus a
-  thin **stdio shim** used as the MCP entry point.
+  thin **stdio shim** used as the MCP entry point. *(v1 ships a single process
+  with neither daemon nor shim; see `V1-SCOPE.md`.)*
 - MCP adapter (the primary tool surface - one server, many agent clients).
 - Deployment: local sidecar (daemon + stdio shim) and remote (Streamable HTTP
   MCP + REST).
@@ -86,14 +102,21 @@ Served to any agent over MCP or REST. Local-first by default, hostable remotely.
   `UserPromptSubmit` hook, an opencode hook) call `memory_search` and splice
   the result into the prompt. The engine only exposes search.
 
-**Adapter priority:** Claude Code, then OpenCode, then Codex, then Grok (the
-clients people actually use). DSH comes afterwards, as one more consumer.
+**Adapter priority:** Claude Code, then Codex, then OpenCode - the clients most
+developers actually drive. Everything else (Grok, DSH, a web UI, team
+deployments) is one more consumer of the same surface and gets no special
+treatment in this design. Earlier drafts named DSH as a first-class target; it
+is not.
 
 ---
 
 ## 3. Architecture
 
 ### 3.1 Daemon plus stdio shim (single-writer)
+
+> **Deferred past v1.** v1 is one process with one client; there is no second
+> writer to race. Build this when a second concurrent client exists.
+
 
 Each stdio MCP client spawns its own copy of the server binary. If that binary
 *is* the engine, two open clients means two engines: two processes writing one
@@ -640,6 +663,11 @@ checkpointed decay state.
 
 ### 5.3 Schema and format versions
 
+> **Half deferred.** The wire-log line format and its writer-side rules are
+> **locked now** - it is the one artifact nothing can rebuild. Schema version
+> skew waits for a second shipped version.
+
+
 The hot index is rebuildable (§3.3), which makes version handling cheap enough
 that leaving it implicit has no excuse - and the schema has changed in four of
 the last five spec revisions, so skew is the expected case rather than the
@@ -1185,6 +1213,9 @@ lookup; a surface that could not express it would waste the mechanism.
 
 ## 11. REST API
 
+> **Deferred past v1.** MCP over stdio is the only v1 surface.
+
+
 For consumers that are not MCP-capable (CLIs, custom scripts, the future web
 UI, DSH's custom tool system). JSON over HTTP; same operations as the MCP
 surface, mapped one-to-one:
@@ -1222,6 +1253,9 @@ and verified to stay inside the vault root before any read or write.
   (`memory-engine shim` and `memory-engine daemon`).
 
 ### Remote (opt-in)
+
+> **Deferred past v1.** Local only.
+
 
 - Same engine, `memory-engine daemon --http :8080`.
 - MCP over **Streamable HTTP** (the current MCP transport; "HTTP+SSE" is the
@@ -1271,7 +1305,7 @@ injection is the adapter's job** (§2, §7.1).
 | OpenCode | MCP (stdio shim) + hook for injection | Second target. `--source opencode`. |
 | Codex | MCP (stdio shim) | Third. `--source codex`. |
 | Grok | MCP (stdio shim) | Fourth. `--source grok`. |
-| DSH | REST (custom tool adapter) | Later; its plugin system is not MCP-native, but it can call the engine over REST like any consumer. |
+| DSH, or any non-MCP client | REST | Much later, and unremarkable: its plugin system is not MCP-native, so it calls REST like any other consumer. No engine feature exists for it. |
 | CLI | REST | `memory search "..."`, `memory propose`, etc. See M-later. |
 | Obsidian | vault + (optional) plugin | Manual curation of the vault; the engine's watcher (M9) re-indexes edited files. |
 
@@ -1342,7 +1376,7 @@ wrapped it.
 | M7 | OpenCode adapter | Works over stdio shim with injection hook. |
 | M8 | Codex + Grok adapters | Work over stdio shim. |
 | M9 | Obsidian watcher | Human vault edits re-index automatically; replaces the "edit then `reindex`" limitation from §5.2. The per-file refresh replaces frontmatter fields and preserves machine columns - a promote does not reset that concept's `last_retrieved` (§5.2). |
-| M10 | DSH adapter (REST) | DSH souls read/write the same memory via REST. |
+| M10 | Any non-MCP consumer (REST) | A non-MCP client reads and writes the same memory over REST, with no engine change required to accommodate it. |
 | M11 *(later)* | Vector search | Embeddings feed retrieval fusion, dedup, and distillation clustering. |
 
 ---
