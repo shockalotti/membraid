@@ -103,18 +103,54 @@ membraid scopes     # every project the vault knows, and which folders are gone
 
 ## Sync across machines
 
-The vault is a git repo. That is the whole sync protocol.
+The vault is a git repo, and membraid keeps it in step with its remote on its
+own. Set the remote once:
 
 ```sh
-cd ~/.membraid/vault && git init && git add -A && git commit -m "memory"
-git remote add origin <your-private-repo> && git push -u origin main
+cd ~/.membraid/vault
+git remote add origin https://github.com/<you>/membraid-vault.git   # keep it PRIVATE
+git push -u origin main
+membraid timer install        # Linux: periodic sync via a systemd user timer
 ```
 
-On the other machine: `git clone <repo> ~/.membraid/vault`, then
-`membraid init` is **not** needed - but the index is rebuilt from the vault
-and wire log, which live in the repo, so nothing is lost.
+On the other machine, clone it and use it. There is nothing to rebuild by hand:
+the first command imports the whole history from the log.
 
-> Keep it private. Your memory is your notes.
+```sh
+git clone https://github.com/<you>/membraid-vault.git ~/.membraid/vault
+membraid status
+```
+
+**How it syncs, and why not on a fixed timer.** The thing sync exists for is
+switching machines, and a 30-minute timer would cost up to 30 minutes of memory
+every switch. So:
+
+- **After writes, it pushes** once they have been quiet for `push_delay_sec`
+  (60s). A burst of agent writes becomes one commit.
+- **When an agent session starts, it pulls.** Starting an agent is when you most
+  likely just changed machines.
+- **The timer checks every 5 minutes** and syncs if there are unpushed changes
+  or the last sync is older than `pull_interval_min` (15). It covers CLI writes
+  and pulls while no agent is open.
+
+**Settings** are per machine and never synced:
+
+```sh
+membraid config                          # show them
+membraid config set auto_sync false      # stop syncing on its own
+membraid config set pull_interval_min 5
+membraid sync                            # once, now
+```
+
+**Why two machines do not conflict.** Each machine appends to its own log file
+(`writes-2026-09-omarchy.jsonl`), so appends never touch the same file. If both
+changed the same subject while offline - `deploy.target` on each - the newest
+write wins on *both* machines and the other is kept as history. The only real
+conflict is a human editing the same markdown file on two machines; sync then
+stops, names the file, and leaves your local commit intact.
+
+On Windows there is no systemd: run `membraid sync --scheduled` from Task
+Scheduler every 5 minutes.
 
 ## Wire it into your harnesses
 
@@ -174,18 +210,26 @@ omarchy plugin add https://github.com/shockalotti/membraid   # once published
 omarchy bar move shockalotti.membraid --section right --before omarchy.power
 ```
 
-A brain icon in the top right. Click it for where you left off and what your
-agents have been learning, across every harness. It reads `membraid status
---json` and writes nothing - if the panel and the CLI disagree, the CLI is
-right.
+A brain icon in the top right, lit when a task is open or a sync failed. Click
+it for:
 
-## The three tools an agent sees
+- **Where you left off** - open tasks. Click one to mark it done.
+- **What your agents learned** - recent memory, tagged with the harness that
+  wrote it.
+- **Sync** - when this machine last synced, *Sync now*, and a toggle for
+  auto-sync.
+
+It reads `membraid status --json` and acts only by running `membraid`
+commands. If the panel and the CLI ever disagree, the CLI is right.
+
+## The tools an agent sees
 
 | Tool | What it does |
 |---|---|
 | `memory_write` | Record a fact. With a `key`, a later write on the same subject **replaces** it rather than competing |
 | `memory_search` | Search current memory: this project plus `shared` |
 | `memory_get` | The live answer for one subject key |
+| `memory_done` | Mark a task finished, by key or id, so it leaves *where you left off* |
 
 The `key` is what makes this a shared brain rather than a pile. Claude Code
 writes `deploy.target = railway`; three weeks later Grok writes

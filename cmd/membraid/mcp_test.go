@@ -2,6 +2,7 @@ package main
 
 import (
 	"encoding/json"
+	"os"
 	"os/exec"
 	"path/filepath"
 	"strings"
@@ -30,6 +31,8 @@ func TestMCPStdioRoundTrip(t *testing.T) {
 	}, "\n") + "\n"
 
 	cmd := exec.Command(bin, "mcp", "--vault", vaultDir, "--source", "test-harness")
+	// Never touch the developer's real settings or sync state.
+	cmd.Env = append(os.Environ(), "MEMBRAID_CONFIG_DIR="+t.TempDir())
 	cmd.Stdin = strings.NewReader(in)
 	out, err := cmd.Output() // Output() keeps stderr separate: stdout must be pure protocol
 	if err != nil {
@@ -55,8 +58,8 @@ func TestMCPStdioRoundTrip(t *testing.T) {
 		t.Errorf("protocolVersion should echo the client: %v", got)
 	}
 	tools := result(t, byID[2])["tools"].([]any)
-	if len(tools) != 3 {
-		t.Errorf("want 3 tools, got %d", len(tools))
+	if len(tools) != 4 {
+		t.Errorf("want 4 tools, got %d", len(tools))
 	}
 	if txt := toolText(t, byID[4]); !strings.Contains(txt, "replaced 1 earlier answer") {
 		t.Errorf("second write must supersede the first: %q", txt)

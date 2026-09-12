@@ -433,6 +433,24 @@ So each line records the derived outcome, not just the input. Three line types:
 
 ---
 
+> **Implementation note (v1, sync).** Two additions made while building sync,
+> both consistent with the writer-side rules in §5.3:
+>
+> - **One log file per machine**: `writes-YYYY-MM-<host>.jsonl`. Git is the sync
+>   protocol, and two machines appending to one shared file is a merge conflict
+>   whenever both write between syncs. File naming is not line format; older
+>   `writes-YYYY-MM.jsonl` files are still read. Readers order lines by parsed
+>   timestamp across all files, never by file or by string comparison.
+> - **Two new line types at `v:1`**: `close` (a task finished with no successor)
+>   and `rescope` (a scope's memories moved). Neither changes an existing type; a
+>   binary that predates them refuses them as unknown rather than misreading
+>   them. `rescope` is logged because a rescope applied only to the local index
+>   is undone on every other machine by replay.
+>
+> Cross-machine merge rule: on a keyed subject the newest write (by timestamp,
+> ties by id) is live and every older one is closed, whichever order the lines
+> arrive in - so machines converge instead of diverging.
+
 ## 4. Cold Vault (source of truth)
 
 ### 4.1 Layout - folders for humans, `type` for routing

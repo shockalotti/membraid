@@ -1,52 +1,60 @@
-// Command membraid is the CLI. v1 is a single process: no daemon, no
-// shim, no socket (see docs/V1-SCOPE.md).
+// Command membraid is the CLI. v1 is a single process per invocation: no
+// daemon, no shim, no socket (see docs/V1-SCOPE.md).
 package main
 
 import (
+	"context"
 	"encoding/json"
+	"errors"
 	"flag"
 	"fmt"
 	"os"
+	"os/exec"
 	"path/filepath"
+	"runtime"
 	"strings"
+	"time"
 
+	"github.com/shockalotti/membraid/internal/config"
 	"github.com/shockalotti/membraid/internal/index"
 	"github.com/shockalotti/membraid/internal/scope"
 	"github.com/shockalotti/membraid/internal/vault"
+	"github.com/shockalotti/membraid/internal/vaultsync"
 	"github.com/shockalotti/membraid/internal/wirelog"
 )
 
 const usage = `membraid - one memory, shared by every agent you use
 
 Usage:
-  membraid init                       create a vault
-  membraid write CONTENT [flags]      record a fact
-  membraid search QUERY [flags]       search current memory
-  membraid get KEY [flags]            the live answer for one subject
-  membraid history KEY [flags]        what we used to think
-  membraid ls | cat PATH              browse the vault
-  membraid status [--json]                 where you left off + what agents learned
-  membraid scopes [--json]                 every project this vault knows
-  membraid rescope --from SCOPE            adopt a moved project's memories
-  membraid where                           which vault and scope am I in?
-  membraid mcp --source NAME          run as an MCP server (stdio)
+  membraid init                          create a vault
+  membraid write CONTENT [flags]         record a fact
+  membraid search QUERY [flags]          search current memory
+  membraid get KEY                       the live answer for one subject
+  membraid history KEY                   what we used to think
+  membraid done KEY | --id ID            mark a task finished
+  membraid status [--json]               where you left off + what agents learned
+  membraid sync [--json]                 commit, pull, push, import - once
+  membraid config [set KEY VALUE]        this machine's settings
+  membraid timer install|remove|status   periodic sync via systemd (Linux)
+  membraid scopes | rescope --from S     projects, and adopting a moved one
+  membraid where                         which vault, scope and machine
+  membraid ls | cat PATH                 browse the vault
+  membraid mcp --source NAME             run as an MCP server (stdio)
 
 Write flags:
   --kind   preference | project_param | insight | task_state   (default insight)
-  --key    subject slug, e.g. editor.theme - a later write on the same key
+  --key    subject slug, e.g. deploy.target - a later write on the same key
            replaces this one instead of competing with it
-  --scope  project slug, or "shared" to surface everywhere.
-           Defaults to the current git project, so you rarely pass it.
-           Searches always see your project plus shared.
+  --scope  project, or "shared" to surface everywhere (default: this git project)
   --source which agent is writing (default: $MEMBRAID_SOURCE or "cli")
 
-Any agent that can run a shell command can use this. That is the point: not
-every harness speaks MCP, and all of them can shell out.
+Sync settings (membraid config set ...):
+  auto_sync          true   push shortly after writes, pull when a session starts
+  push_delay_sec     60     wait for writes to go quiet before pushing
+  pull_interval_min  15     how stale a scheduled pull may get
+  host               (hostname)  names this machine's log file
 
-The vault is plain markdown. You never need this tool to read or fix it - grep
-it, open it in your editor, delete a file that is wrong.
-
-Default vault: ~/.membraid/vault (MEMBRAID_VAULT), index alongside it.
+The vault is plain markdown. You never need this tool to read or fix it.
 `
 
 func main() {
@@ -68,118 +76,25 @@ func run(args []string) error {
 	vaultPath := fs.String("vault", defaultVault(), "vault directory")
 	kind := fs.String("kind", index.KindInsight, "preference|project_param|insight|task_state")
 	key := fs.String("key", "", "subject key, e.g. editor.theme")
-	scopeFlag := fs.String("scope", "", "project scope, or shared (default: this git project)")
+	scopeFlag := fs.String("scope", "", "project scope, or shared")
 	source := fs.String("source", defaultSource(), "which agent is writing")
 	limit := fs.Int("n", 10, "max results")
 	jsonOut := fs.Bool("json", false, "machine-readable output")
 	from := fs.String("from", "", "source scope for rescope")
+	id := fs.String("id", "", "row id, for done")
+	scheduled := fs.Bool("scheduled", false, "sync only if due (for the timer)")
+	quiet := fs.Bool("quiet", false, "no output on success")
 	if err := fs.Parse(permute(fs, rest)); err != nil {
 		return err
+	}
+
+	cfg, cerr := config.Load()
+	if cerr != nil {
+		fmt.Fprintln(os.Stderr, "membraid: using default settings:", cerr)
 	}
 	v := vault.Open(*vaultPath)
 
 	switch cmd {
-	case "scopes":
-		ix, closeIx, err := openIndex(v)
-		if err != nil {
-			return err
-		}
-		defer closeIx()
-		list, err := ix.Scopes()
-		if err != nil {
-			return err
-		}
-		if *jsonOut {
-			return json.NewEncoder(os.Stdout).Encode(list)
-		}
-		cur := scope.Resolve(*scopeFlag)
-		for _, s := range list {
-			mark := " "
-			if s.Scope == cur {
-				mark = "*"
-			}
-			note := ""
-			if s.Missing {
-				note = "  (folder missing)"
-			}
-			fmt.Printf("%s %-12s %-20s %4d  %s%s\n", mark, s.Scope, s.Name, s.Count, s.Path, note)
-		}
-		return nil
-
-	case "rescope":
-		ix, closeIx, err := openIndex(v)
-		if err != nil {
-			return err
-		}
-		defer closeIx()
-		if *from == "" {
-			return fmt.Errorf("rescope needs --from <scope>; run 'membraid scopes' to see them")
-		}
-		to := scope.Resolve(*scopeFlag)
-		n, err := ix.Rescope(*from, to)
-		if err != nil {
-			return err
-		}
-		fmt.Printf("moved %d memories from %s to %s\n", n, *from, to)
-		return nil
-
-	case "status":
-		ix, closeIx, err := openIndex(v)
-		if err != nil {
-			return err
-		}
-		defer closeIx()
-		sc := scope.Resolve(*scopeFlag)
-		warnIfMoved(ix, sc)
-		st, err := ix.Stats()
-		if err != nil {
-			return err
-		}
-		// task_state first: "where did I leave off" is the question this
-		// answers, and it is the one a glance should settle.
-		doing, err := ix.Recent(sc, []string{index.KindTaskState}, 5)
-		if err != nil {
-			return err
-		}
-		learned, err := ix.Recent(sc, []string{index.KindPreference, index.KindProjectParam, index.KindInsight}, 12)
-		if err != nil {
-			return err
-		}
-		if *jsonOut {
-			return json.NewEncoder(os.Stdout).Encode(map[string]any{
-				"scope": sc, "vault": v.Root(), "stats": st,
-				"doing": doing, "learned": learned,
-			})
-		}
-		fmt.Printf("scope %s  -  %d current, %d total, %d projects\n", sc, st.Current, st.Total, st.Scopes)
-		if len(doing) > 0 {
-			fmt.Println("\nwhere you left off")
-			for _, h := range doing {
-				fmt.Printf("  %s (%s)\n", h.Content, h.Source)
-			}
-		}
-		if len(learned) > 0 {
-			fmt.Println("\nrecently learned")
-			for _, h := range learned {
-				k := h.Key
-				if k == "" {
-					k = "-"
-				}
-				fmt.Printf("  %-14s %-16s %s (%s)\n", h.Kind, k, h.Content, h.Source)
-			}
-		}
-		return nil
-
-	case "mcp":
-		return runMCP(v, *source)
-
-	case "where":
-		fmt.Printf("vault   %s\n", v.Root())
-		fmt.Printf("scope   %s (%s)\n", scope.Resolve(*scopeFlag), scope.Name(""))
-		fmt.Println("\nOne vault holds every project. Scope is a column, not a folder,")
-		fmt.Println("so there is one brain and one thing to sync.")
-		return nil
-
 	case "init":
 		if err := v.Init(); err != nil {
 			return err
@@ -195,14 +110,9 @@ func run(args []string) error {
 		}
 		if len(cs) == 0 {
 			fmt.Println("no concepts yet")
-			return nil
 		}
 		for _, c := range cs {
-			key := c.Key
-			if key == "" {
-				key = "-"
-			}
-			fmt.Printf("%-40s %-10s %-8s %-16s %s\n", c.Path, c.Type, c.Status, key, c.Title)
+			fmt.Printf("%-40s %-10s %-8s %-16s %s\n", c.Path, c.Type, c.Status, dash(c.Key), c.Title)
 		}
 		return nil
 
@@ -219,106 +129,269 @@ func run(args []string) error {
 
 	case "write":
 		if fs.NArg() < 1 {
-			return fmt.Errorf("write needs content, e.g. membraid write \"deploy target is railway\" --key deploy.target --kind project_param")
+			return fmt.Errorf(`write needs content, e.g. membraid write "deploy target is railway" --key deploy.target --kind project_param`)
 		}
-		ix, closeIx, err := openIndex(v)
-		if err != nil {
-			return err
-		}
-		defer closeIx()
-		res, err := ix.Write(index.Memory{
-			Kind: *kind, Key: *key, Content: strings.Join(fs.Args(), " "),
-			Scope: scope.Resolve(*scopeFlag), Source: *source,
-		})
-		if err != nil {
-			return err
-		}
-		fmt.Printf("wrote %s", res.ID)
-		if n := len(res.Superseded); n > 0 {
-			fmt.Printf(" (replaced %d earlier answer", n)
-			if n > 1 {
-				fmt.Print("s")
+		return withIndex(v, cfg, func(ix *index.Index) error {
+			res, err := ix.Write(index.Memory{
+				Kind: *kind, Key: *key, Content: strings.Join(fs.Args(), " "),
+				Scope: scope.Resolve(*scopeFlag), Source: *source,
+			})
+			if err != nil {
+				return err
 			}
-			fmt.Print(")")
-		}
-		fmt.Println()
-		return nil
+			fmt.Printf("wrote %s", res.ID)
+			if n := len(res.Superseded); n > 0 {
+				fmt.Printf(" (replaced %d earlier answer%s)", n, plural(n))
+			}
+			fmt.Println()
+			return nil
+		})
+
+	case "done":
+		return withIndex(v, cfg, func(ix *index.Index) error {
+			k := ""
+			if fs.NArg() > 0 {
+				k = fs.Arg(0)
+			}
+			if k == "" && *id == "" {
+				return fmt.Errorf("done needs a key or --id; 'membraid status' lists open tasks")
+			}
+			closed, err := ix.Done(scope.Resolve(*scopeFlag), k, *id)
+			if errors.Is(err, index.ErrNothingToClose) {
+				return fmt.Errorf("no open task matches; 'membraid status' lists them")
+			}
+			if err != nil {
+				return err
+			}
+			fmt.Printf("marked %d task%s done\n", len(closed), plural(len(closed)))
+			return nil
+		})
 
 	case "search":
 		if fs.NArg() < 1 {
 			return fmt.Errorf("search needs a query")
 		}
-		ix, closeIx, err := openIndex(v)
-		if err != nil {
-			return err
+		return withIndex(v, cfg, func(ix *index.Index) error {
+			sc := scope.Resolve(*scopeFlag)
+			warnIfMoved(ix, sc)
+			hits, err := ix.Search(strings.Join(fs.Args(), " "), sc, *limit)
+			if err != nil {
+				return err
+			}
+			if *jsonOut {
+				return json.NewEncoder(os.Stdout).Encode(hits)
+			}
+			if len(hits) == 0 {
+				fmt.Println("nothing found")
+			}
+			for _, h := range hits {
+				fmt.Printf("%-14s %-16s %-12s %s\n", h.Kind, dash(h.Key), h.Scope, h.Content)
+			}
+			return nil
+		})
+
+	case "get", "history":
+		if fs.NArg() < 1 {
+			return fmt.Errorf("%s needs a key, e.g. membraid %s deploy.target", cmd, cmd)
 		}
-		defer closeIx()
-		sc := scope.Resolve(*scopeFlag)
-		warnIfMoved(ix, sc)
-		hits, err := ix.Search(strings.Join(fs.Args(), " "), sc, *limit)
-		if err != nil {
-			return err
+		return withIndex(v, cfg, func(ix *index.Index) error {
+			sc := scope.Resolve(*scopeFlag)
+			found := false
+			for _, k := range []string{index.KindPreference, index.KindProjectParam, index.KindInsight, index.KindTaskState} {
+				if cmd == "get" {
+					m, err := ix.Current(sc, k, fs.Arg(0))
+					if err != nil {
+						return err
+					}
+					if m != nil {
+						fmt.Printf("%-14s %s\n", m.Kind, m.Content)
+						found = true
+					}
+					continue
+				}
+				rows, err := ix.History(sc, k, fs.Arg(0))
+				if err != nil {
+					return err
+				}
+				for i, m := range rows {
+					marker := "  "
+					if i == 0 {
+						marker = "->"
+					}
+					fmt.Printf("%s %-14s %s [%s]\n", marker, m.Kind, m.Content, m.Source)
+					found = true
+				}
+			}
+			if !found {
+				fmt.Println("no answer for that subject")
+			}
+			return nil
+		})
+
+	case "scopes":
+		return withIndex(v, cfg, func(ix *index.Index) error {
+			list, err := ix.Scopes()
+			if err != nil {
+				return err
+			}
+			if *jsonOut {
+				return json.NewEncoder(os.Stdout).Encode(list)
+			}
+			cur := scope.Resolve(*scopeFlag)
+			for _, s := range list {
+				mark, note := " ", ""
+				if s.Scope == cur {
+					mark = "*"
+				}
+				if s.Missing {
+					note = "  (folder missing)"
+				}
+				fmt.Printf("%s %-12s %-20s %4d  %s%s\n", mark, s.Scope, s.Name, s.Count, s.Path, note)
+			}
+			return nil
+		})
+
+	case "rescope":
+		if *from == "" {
+			return fmt.Errorf("rescope needs --from <scope>; run 'membraid scopes' to see them")
 		}
-		if len(hits) == 0 {
-			fmt.Println("nothing found")
+		return withIndex(v, cfg, func(ix *index.Index) error {
+			to := scope.Resolve(*scopeFlag)
+			n, err := ix.Rescope(*from, to)
+			if err != nil {
+				return err
+			}
+			fmt.Printf("moved %d memories from %s to %s\n", n, *from, to)
+			return nil
+		})
+
+	case "status":
+		return withIndex(v, cfg, func(ix *index.Index) error {
+			sc := scope.Resolve(*scopeFlag)
+			if sc != "*" {
+				warnIfMoved(ix, sc)
+			}
+			st, err := ix.Stats()
+			if err != nil {
+				return err
+			}
+			doing, err := ix.Recent(sc, []string{index.KindTaskState}, 5)
+			if err != nil {
+				return err
+			}
+			learned, err := ix.Recent(sc, []string{index.KindPreference, index.KindProjectParam, index.KindInsight}, 12)
+			if err != nil {
+				return err
+			}
+			// Label rows by project name. The bar asks for every project at once
+			// ("--scope *"): it is not standing in any project, and falling back to
+			// shared hid every project's tasks from "where you left off".
+			names, _ := ix.ScopeNames()
+			label := func(h []index.Hit) {
+				for i := range h {
+					if n, ok := names[h[i].Scope]; ok {
+						h[i].ScopeName = n
+					} else {
+						h[i].ScopeName = h[i].Scope
+					}
+				}
+			}
+			label(doing)
+			label(learned)
+			ss := config.LoadState()
+			syncInfo := map[string]any{
+				"enabled": cfg.AutoSync, "last_success": ss.LastSuccess, "last_error": ss.LastError,
+				"last_skipped": ss.LastSkipped, "interval_min": cfg.PullIntervalMin,
+			}
+			if *jsonOut {
+				return json.NewEncoder(os.Stdout).Encode(map[string]any{
+					"scope": sc, "vault": v.Root(), "host": wirelog.SafeHost(cfg.HostName()),
+					"stats": st, "doing": doing, "learned": learned, "sync": syncInfo,
+				})
+			}
+			fmt.Printf("scope %s  -  %d current, %d total, %d projects\n", sc, st.Current, st.Total, st.Scopes)
+			fmt.Println("sync  " + describeSync(cfg, ss))
+			if len(doing) > 0 {
+				fmt.Println("\nwhere you left off")
+				for _, h := range doing {
+					fmt.Printf("  %s (%s, %s)  [done: membraid done --id %s]\n", h.Content, h.ScopeName, h.Source, h.ID)
+				}
+			}
+			if len(learned) > 0 {
+				fmt.Println("\nrecently learned")
+				for _, h := range learned {
+					fmt.Printf("  %-14s %-16s %s (%s, %s)\n", h.Kind, dash(h.Key), h.Content, h.ScopeName, h.Source)
+				}
+			}
+			return nil
+		})
+
+	case "sync":
+		if *scheduled {
+			due, why := syncDue(v, cfg)
+			if !due {
+				if !*quiet {
+					fmt.Println("not due:", why)
+				}
+				return nil
+			}
+		}
+		return withIndex(v, cfg, func(ix *index.Index) error {
+			ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
+			defer cancel()
+			res, imported, err := syncVault(ctx, v, cfg, ix)
+			if *jsonOut {
+				out := map[string]any{"result": res, "imported": imported}
+				if err != nil {
+					out["error"] = err.Error()
+				}
+				json.NewEncoder(os.Stdout).Encode(out)
+				return err
+			}
+			if err != nil {
+				return err
+			}
+			if !*quiet {
+				fmt.Println(describeResult(res, imported))
+			}
+			return nil
+		})
+
+	case "config":
+		if fs.NArg() == 0 {
+			buf, _ := json.MarshalIndent(cfg, "", "  ")
+			fmt.Printf("%s\n\n# %s\n", buf, config.Path())
 			return nil
 		}
-		for _, h := range hits {
-			k := h.Key
-			if k == "" {
-				k = "-"
-			}
-			fmt.Printf("%-14s %-16s %-12s %s\n", h.Kind, k, h.Scope, h.Content)
+		if fs.Arg(0) != "set" || fs.NArg() != 3 {
+			return fmt.Errorf("usage: membraid config set KEY VALUE")
 		}
-		return nil
-
-	case "get":
-		if fs.NArg() < 1 {
-			return fmt.Errorf("get needs a key, e.g. membraid get editor.theme")
-		}
-		ix, closeIx, err := openIndex(v)
-		if err != nil {
+		if err := cfg.Set(fs.Arg(1), fs.Arg(2)); err != nil {
 			return err
 		}
-		defer closeIx()
-		found := false
-		for _, k := range []string{index.KindPreference, index.KindProjectParam, index.KindInsight, index.KindTaskState} {
-			m, err := ix.Current(scope.Resolve(*scopeFlag), k, fs.Arg(0))
-			if err != nil {
-				return err
-			}
-			if m != nil {
-				fmt.Printf("%-14s %s\n", m.Kind, m.Content)
-				found = true
-			}
-		}
-		if !found {
-			fmt.Println("no current answer for that subject")
-		}
-		return nil
-
-	case "history":
-		if fs.NArg() < 1 {
-			return fmt.Errorf("history needs a key")
-		}
-		ix, closeIx, err := openIndex(v)
-		if err != nil {
+		if err := cfg.Save(); err != nil {
 			return err
 		}
-		defer closeIx()
-		for _, k := range []string{index.KindPreference, index.KindProjectParam, index.KindInsight, index.KindTaskState} {
-			rows, err := ix.History(scope.Resolve(*scopeFlag), k, fs.Arg(0))
-			if err != nil {
-				return err
-			}
-			for i, m := range rows {
-				marker := "  "
-				if i == 0 {
-					marker = "->"
-				}
-				fmt.Printf("%s %-14s %s [%s]\n", marker, m.Kind, m.Content, m.Source)
-			}
+		fmt.Printf("%s = %s\n", fs.Arg(1), fs.Arg(2))
+		return nil
+
+	case "timer":
+		action := "status"
+		if fs.NArg() > 0 {
+			action = fs.Arg(0)
 		}
+		return timerCmd(action, v)
+
+	case "mcp":
+		return runMCP(v, cfg, *source)
+
+	case "where":
+		fmt.Printf("vault   %s\n", v.Root())
+		fmt.Printf("scope   %s (%s)\n", scope.Resolve(*scopeFlag), scope.Name(""))
+		fmt.Printf("host    %s\n", wirelog.SafeHost(cfg.HostName()))
+		fmt.Printf("config  %s\n", config.Path())
+		fmt.Println("\nOne vault holds every project. Scope is a column, not a folder,")
+		fmt.Println("so there is one brain and one thing to sync.")
 		return nil
 
 	default:
@@ -326,15 +399,198 @@ func run(args []string) error {
 	}
 }
 
-// permute moves flags ahead of positional arguments.
+// withIndex opens the index, brings in anything another process or machine has
+// appended to the log since this index last looked, and runs fn.
 //
-// Go's flag package stops parsing at the first non-flag argument, so
-//
-//	membraid write "deploy target is railway" --key deploy.target
-//
-// silently ignores every flag and folds them into the content. That is the
-// natural way to type the command, so the CLI has to accept it rather than
-// teach people a rule about argument order.
+// Import on every open is what lets a pull made by the timer, or by the other
+// harness's server, show up here without either one telling this process.
+func withIndex(v *vault.Vault, cfg config.Config, fn func(*index.Index) error) error {
+	ix, closeIx, err := openIndex(v, cfg)
+	if err != nil {
+		return err
+	}
+	defer closeIx()
+	return fn(ix)
+}
+
+func openIndex(v *vault.Vault, cfg config.Config) (*index.Index, func(), error) {
+	lg, err := wirelog.Open(v.HotPath(), cfg.HostName())
+	if err != nil {
+		return nil, nil, err
+	}
+	ix, err := index.Open(v.IndexPath(), lg)
+	if err != nil {
+		lg.Close()
+		return nil, nil, err
+	}
+	if _, err := ix.ImportAll(); err != nil {
+		fmt.Fprintln(os.Stderr, "membraid: could not import from the wire log:", err)
+	}
+	_ = ix.TouchScope(scope.Resolve(""), scope.Name(""), scope.Dir())
+	return ix, func() { ix.Close(); lg.Close() }, nil
+}
+
+// syncVault runs one git sync, imports whatever it pulled, and records the
+// outcome where status output and the bar widget read it.
+func syncVault(ctx context.Context, v *vault.Vault, cfg config.Config, ix *index.Index) (*vaultsync.Result, int, error) {
+	now := func() string { return time.Now().UTC().Format(time.RFC3339Nano) }
+	st := config.LoadState()
+	st.LastAttempt = now()
+
+	res, err := vaultsync.Run(ctx, v.Root(), vaultsync.Options{Host: wirelog.SafeHost(cfg.HostName())})
+	imported := 0
+	if err == nil && res.Skipped == "" {
+		imported, err = ix.ImportAll()
+	}
+	switch {
+	case err != nil:
+		st.LastError = err.Error()
+	case res.Skipped != "":
+		st.LastSkipped = res.Skipped
+	default:
+		st.LastSuccess, st.LastError, st.LastSkipped = now(), "", ""
+		st.Pushed, st.Pulled, st.Imported = res.Pushed, res.Pulled, imported
+	}
+	if serr := st.Save(); serr != nil {
+		fmt.Fprintln(os.Stderr, "membraid: could not save sync state:", serr)
+	}
+	return res, imported, err
+}
+
+// syncDue decides whether a scheduled run has anything to do: yes if the vault
+// has uncommitted changes (a CLI write is waiting to be pushed), or if the last
+// successful sync is older than the pull interval.
+func syncDue(v *vault.Vault, cfg config.Config) (bool, string) {
+	if !cfg.AutoSync {
+		return false, "auto_sync is off"
+	}
+	out, err := exec.Command("git", "-C", v.Root(), "status", "--porcelain").Output()
+	if err == nil && len(strings.TrimSpace(string(out))) > 0 {
+		return true, "uncommitted changes"
+	}
+	age, ok := config.LoadState().SinceLastSuccess(time.Now())
+	if !ok || age >= time.Duration(cfg.PullIntervalMin)*time.Minute {
+		return true, "pull interval elapsed"
+	}
+	return false, fmt.Sprintf("last synced %s ago", age.Round(time.Second))
+}
+
+func describeResult(r *vaultsync.Result, imported int) string {
+	if r.Skipped != "" {
+		return "skipped: " + r.Skipped
+	}
+	var parts []string
+	if r.Committed {
+		parts = append(parts, "committed")
+	}
+	if r.Pulled {
+		parts = append(parts, "pulled")
+	}
+	if r.Pushed {
+		parts = append(parts, "pushed")
+	}
+	if imported > 0 {
+		parts = append(parts, fmt.Sprintf("imported %d from other machines", imported))
+	}
+	if !r.Remote {
+		parts = append(parts, "no remote configured")
+	}
+	if len(parts) == 0 {
+		return "already in sync"
+	}
+	return strings.Join(parts, ", ")
+}
+
+func describeSync(cfg config.Config, st config.State) string {
+	if !cfg.AutoSync {
+		return "auto-sync off"
+	}
+	if st.LastError != "" {
+		return "last sync failed: " + st.LastError
+	}
+	if age, ok := st.SinceLastSuccess(time.Now()); ok {
+		return fmt.Sprintf("synced %s ago", age.Round(time.Second))
+	}
+	if st.LastSkipped != "" {
+		return "not syncing: " + st.LastSkipped
+	}
+	return "not synced yet"
+}
+
+func timerCmd(action string, v *vault.Vault) error {
+	if runtime.GOOS != "linux" {
+		return fmt.Errorf("the scheduled timer uses systemd, which is Linux-only; on %s run 'membraid sync --scheduled' from Task Scheduler or cron every 5 minutes", runtime.GOOS)
+	}
+	base, err := os.UserConfigDir()
+	if err != nil {
+		return err
+	}
+	dir := filepath.Join(base, "systemd", "user")
+	service, timer := filepath.Join(dir, "membraid-sync.service"), filepath.Join(dir, "membraid-sync.timer")
+	systemctl := func(args ...string) error {
+		out, err := exec.Command("systemctl", append([]string{"--user"}, args...)...).CombinedOutput()
+		if err != nil {
+			return fmt.Errorf("systemctl %s: %v: %s", strings.Join(args, " "), err, strings.TrimSpace(string(out)))
+		}
+		return nil
+	}
+
+	switch action {
+	case "install":
+		exe, err := os.Executable()
+		if err != nil {
+			return err
+		}
+		if exe, err = filepath.EvalSymlinks(exe); err != nil {
+			return err
+		}
+		env := "Environment=MEMBRAID_VAULT=" + v.Root() + "\n"
+		if d := os.Getenv("MEMBRAID_CONFIG_DIR"); d != "" {
+			env += "Environment=MEMBRAID_CONFIG_DIR=" + d + "\n"
+		}
+		// The timer ticks every 5 minutes; the command decides whether anything
+		// is due. That keeps pull_interval_min a plain setting instead of
+		// something that needs the unit file rewritten whenever it changes.
+		unit := "[Unit]\nDescription=membraid: sync the memory vault with its git remote\n" +
+			"After=network-online.target\n\n[Service]\nType=oneshot\n" +
+			"ExecStart=" + exe + " sync --scheduled --quiet\n" + env
+		tick := "[Unit]\nDescription=membraid: periodic vault sync\n\n[Timer]\n" +
+			"OnBootSec=2min\nOnUnitActiveSec=5min\nPersistent=true\n\n[Install]\nWantedBy=timers.target\n"
+		if err := os.MkdirAll(dir, 0o755); err != nil {
+			return err
+		}
+		if err := os.WriteFile(service, []byte(unit), 0o644); err != nil {
+			return err
+		}
+		if err := os.WriteFile(timer, []byte(tick), 0o644); err != nil {
+			return err
+		}
+		if err := systemctl("daemon-reload"); err != nil {
+			return err
+		}
+		if err := systemctl("enable", "--now", "membraid-sync.timer"); err != nil {
+			return err
+		}
+		fmt.Println("installed: membraid-sync.timer checks every 5 minutes and syncs when due")
+		return nil
+	case "remove":
+		_ = systemctl("disable", "--now", "membraid-sync.timer")
+		os.Remove(service)
+		os.Remove(timer)
+		_ = systemctl("daemon-reload")
+		fmt.Println("removed membraid-sync.timer")
+		return nil
+	case "status":
+		out, _ := exec.Command("systemctl", "--user", "list-timers", "membraid-sync.timer", "--no-pager").CombinedOutput()
+		fmt.Print(string(out))
+		return nil
+	}
+	return fmt.Errorf("timer takes install, remove or status")
+}
+
+// permute moves flags ahead of positional arguments, because Go's flag package
+// stops at the first positional and 'write "content" --key foo' is the natural
+// way to type the command.
 func permute(fs *flag.FlagSet, args []string) []string {
 	var flags, positional []string
 	for i := 0; i < len(args); i++ {
@@ -348,8 +604,6 @@ func permute(fs *flag.FlagSet, args []string) []string {
 			continue
 		}
 		flags = append(flags, a)
-		// A flag written as --name value consumes the next argument, unless it
-		// is boolean or already written as --name=value.
 		if !strings.Contains(a, "=") && i+1 < len(args) && !isBoolFlag(fs, a) {
 			i++
 			flags = append(flags, args[i])
@@ -359,8 +613,7 @@ func permute(fs *flag.FlagSet, args []string) []string {
 }
 
 func isBoolFlag(fs *flag.FlagSet, arg string) bool {
-	name := strings.TrimLeft(arg, "-")
-	f := fs.Lookup(name)
+	f := fs.Lookup(strings.TrimLeft(arg, "-"))
 	if f == nil {
 		return false
 	}
@@ -368,45 +621,18 @@ func isBoolFlag(fs *flag.FlagSet, arg string) bool {
 	return ok && bf.IsBoolFlag()
 }
 
-// openIndex puts the index inside the vault's .hot directory, beside the wire
-// log: one --vault moves everything, Obsidian hides it, and .hot/.gitignore
-// keeps the rebuildable cache out of git while the log stays in.
-func openIndex(v *vault.Vault) (*index.Index, func(), error) {
-	lg, err := wirelog.Open(v.HotPath())
-	if err != nil {
-		return nil, nil, err
-	}
-	ix, err := index.Open(v.IndexPath(), lg)
-	if err != nil {
-		lg.Close()
-		return nil, nil, err
-	}
-	_ = ix.TouchScope(scope.Resolve(""), scope.Name(""), scope.Dir())
-	return ix, func() { ix.Close(); lg.Close() }, nil
-}
-
-// warnIfMoved is the "things moved and now nothing is where it was" path.
-//
-// A git project carries its identity in its root commit and survives a move
-// untouched. Everything else is path-derived, so moving the directory strands
-// its memories under a scope nobody stands in any more. Rather than silently
-// starting an empty second brain, say so and offer the one command that fixes
-// it.
+// warnIfMoved: standing in an empty scope while another scope holds memories
+// whose folder is gone looks like a project that moved.
 func warnIfMoved(ix *index.Index, current string) {
 	known, err := ix.Scopes()
 	if err != nil {
 		return
 	}
-	// The signal is not a name match - a directory that moved usually gets a
-	// different name, which is often why it moved. The signal is that you are
-	// standing in an empty scope while some other scope holds memories and its
-	// folder is gone. Anything else is a guess, and guessing here merges
-	// unrelated projects.
 	var orphans []index.ScopeInfo
 	for _, s := range known {
 		if s.Scope == current {
 			if s.Count > 0 {
-				return // this scope has content; nothing was stranded
+				return
 			}
 			continue
 		}
@@ -442,4 +668,18 @@ func defaultVault() string {
 		return ".membraid/vault"
 	}
 	return filepath.Join(home, ".membraid", "vault")
+}
+
+func dash(s string) string {
+	if s == "" {
+		return "-"
+	}
+	return s
+}
+
+func plural(n int) string {
+	if n == 1 {
+		return ""
+	}
+	return "s"
 }

@@ -49,6 +49,14 @@ CREATE VIRTUAL TABLE IF NOT EXISTS memories_fts USING fts5(
   content, id UNINDEXED, tokenize='porter unicode61'
 );
 
+-- How far into each wire-log file this index has read. Files are append-only,
+-- so import resumes where it stopped instead of rereading years of history on
+-- every command. "pos" rather than "offset": OFFSET is an SQL keyword.
+CREATE TABLE IF NOT EXISTS log_offsets (
+  file TEXT PRIMARY KEY,
+  pos  INTEGER NOT NULL
+);
+
 CREATE TABLE IF NOT EXISTS scopes (
   scope      TEXT PRIMARY KEY,
   name       TEXT NOT NULL,

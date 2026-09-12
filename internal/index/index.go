@@ -1,11 +1,15 @@
 package index
 
 import (
+	"crypto/rand"
 	"database/sql"
+	"encoding/hex"
 	"errors"
 	"fmt"
 	"os"
+	"path/filepath"
 	"regexp"
+	"sort"
 	"strings"
 	"time"
 
@@ -14,9 +18,8 @@ import (
 	"github.com/shockalotti/membraid/internal/wirelog"
 )
 
-// Kinds are a closed set (SPEC §6.1). The choice is load-bearing: kind is part
-// of a subject's identity, so a preference and an insight sharing a key are two
-// subjects forever.
+// Kinds are a closed set (SPEC §6.1). kind is part of a subject's identity, so
+// a preference and an insight sharing a key are two subjects forever.
 const (
 	KindPreference   = "preference"
 	KindProjectParam = "project_param"
@@ -28,16 +31,14 @@ var validKinds = map[string]bool{
 	KindPreference: true, KindProjectParam: true, KindInsight: true, KindTaskState: true,
 }
 
-// ScopeShared surfaces everywhere; a workspace slug surfaces in that project.
 const ScopeShared = "shared"
 
 type Index struct {
 	db  *sql.DB
 	log *wirelog.Log
-	now func() time.Time // injectable so decay and sweep tests are deterministic
+	now func() time.Time
 }
 
-// Open creates or opens the index. log may be nil for read-only use.
 func Open(path string, log *wirelog.Log) (*Index, error) {
 	db, err := sql.Open("sqlite", path+"?_pragma=journal_mode(WAL)&_pragma=busy_timeout(5000)")
 	if err != nil {
@@ -54,16 +55,13 @@ func Open(path string, log *wirelog.Log) (*Index, error) {
 	return &Index{db: db, log: log, now: func() time.Time { return time.Now().UTC() }}, nil
 }
 
-func (ix *Index) Close() error { return ix.db.Close() }
-
-// SetClock replaces the time source. Tests only.
+func (ix *Index) Close() error                { return ix.db.Close() }
 func (ix *Index) SetClock(f func() time.Time) { ix.now = f }
 
-// Memory is one hot row.
 type Memory struct {
 	ID         string
 	Kind       string
-	Key        string // "" means unkeyed
+	Key        string
 	Content    string
 	Scope      string
 	Source     string
@@ -71,8 +69,6 @@ type Memory struct {
 	SessionRef string
 }
 
-// WriteResult reports what a write closed, so a caller that disagrees can
-// correct it by writing the old content again.
 type WriteResult struct {
 	ID         string
 	Scope      string
@@ -80,26 +76,25 @@ type WriteResult struct {
 }
 
 var ErrInvalidKind = errors.New("index: unknown kind")
+var ErrNothingToClose = errors.New("index: no open task matches")
 
-// normalizeKey collapses the punctuation habits of different agents onto one
-// spelling (SPEC §6.3). Without this, editor.theme / Editor_Theme / editor..theme
-// are three subjects and the shared brain fragments silently.
 var keySep = regexp.MustCompile(`[\s._/\-]+`)
+var keyJunk = regexp.MustCompile(`[^a-z0-9.]`)
 
+// NormalizeKey collapses different agents' punctuation habits onto one spelling
+// (SPEC §6.3): editor.theme, Editor_Theme and editor..theme are one subject.
 func NormalizeKey(k string) string {
 	k = strings.ToLower(strings.TrimSpace(k))
 	k = keySep.ReplaceAllString(k, ".")
-	k = regexp.MustCompile(`[^a-z0-9.]`).ReplaceAllString(k, "")
+	k = keyJunk.ReplaceAllString(k, "")
 	return strings.Trim(k, ".")
 }
 
-// Write records a fact. If it carries a key, every current row on the same
-// subject is closed first: one subject, one live answer, across every harness.
+// Write records a fact. A keyed write retires the live answer on the same
+// subject, across every harness and every machine.
 //
 // The wire-log line is appended and flushed BEFORE the transaction commits, so
-// the log is always a superset of the index (SPEC §3.3). A crash between the
-// two leaves a logged line with no row, which replay heals; the reverse loses
-// a row silently at the next rebuild.
+// the log stays a superset of the index (SPEC §3.3).
 func (ix *Index) Write(m Memory) (*WriteResult, error) {
 	if !validKinds[m.Kind] {
 		return nil, fmt.Errorf("%w: %q (want preference, project_param, insight or task_state)", ErrInvalidKind, m.Kind)
@@ -114,93 +109,393 @@ func (ix *Index) Write(m Memory) (*WriteResult, error) {
 		return nil, errors.New("index: * is a query sentinel, not a scope to write into")
 	}
 	if m.ID == "" {
-		m.ID = newID()
+		m.ID = NewID()
 	}
 	m.Key = NormalizeKey(m.Key)
-	now := ix.now().Format(time.RFC3339Nano)
+	at := ix.now()
 
-	// Find what this closes, before writing anything.
-	var closing []string
+	line := wirelog.WriteLine{
+		Header: wirelog.NewHeader(wirelog.TypeWrite, at),
+		ID:     m.ID, Scope: m.Scope, Source: m.Source, Kind: m.Kind,
+		Content: m.Content, Confidence: m.Confidence, SessionRef: m.SessionRef,
+		Superseded: []wirelog.Superseded{},
+	}
 	if m.Key != "" {
-		rows, err := ix.db.Query(
-			`SELECT id FROM memories WHERE scope=? AND kind=? AND key=? AND valid_to IS NULL`,
-			m.Scope, m.Kind, m.Key)
+		k, mode := m.Key, wirelog.ModeKey
+		line.Key, line.SupersedeMode = &k, &mode
+		// Record what this write closes, for anyone reading the log. Apply
+		// re-derives it by timestamp, and agrees for any write whose clock is
+		// not behind a live answer that arrived from another machine.
+		cur, err := ix.currentFor(ix.db, m.Scope, m.Kind, m.Key)
 		if err != nil {
 			return nil, err
 		}
-		for rows.Next() {
-			var id string
-			if err := rows.Scan(&id); err != nil {
-				rows.Close()
-				return nil, err
+		for _, c := range cur {
+			if newer(at, m.ID, c.at, c.id) {
+				line.Superseded = append(line.Superseded, wirelog.Superseded{ID: c.id, Key: m.Key})
 			}
-			closing = append(closing, id)
-		}
-		rows.Close()
-		if err := rows.Err(); err != nil {
-			return nil, err
 		}
 	}
 
-	// Log first. If this fails, nothing is written.
 	if ix.log != nil {
-		line := wirelog.WriteLine{
-			Header: wirelog.NewHeader(wirelog.TypeWrite),
-			ID:     m.ID, Scope: m.Scope, Source: m.Source, Kind: m.Kind,
-			Content: m.Content, Confidence: m.Confidence, SessionRef: m.SessionRef,
-			Superseded: []wirelog.Superseded{},
-		}
-		if m.Key != "" {
-			k := m.Key
-			line.Key = &k
-			mode := wirelog.ModeKey
-			line.SupersedeMode = &mode
-			for _, id := range closing {
-				line.Superseded = append(line.Superseded, wirelog.Superseded{ID: id, Key: m.Key})
-			}
-		}
 		if err := ix.log.Append(line); err != nil {
 			return nil, fmt.Errorf("index: wire log: %w", err)
 		}
 	}
-
 	tx, err := ix.db.Begin()
 	if err != nil {
 		return nil, err
 	}
 	defer tx.Rollback()
-
-	// Close before insert: SQLite enforces unique indexes per statement, not at
-	// commit, so inserting first would trip the partial unique index against the
-	// row it is about to vacate.
-	var primaryParent any
-	for _, id := range closing {
-		if _, err := tx.Exec(
-			`UPDATE memories SET valid_to=?, superseded_by=? WHERE id=?`, now, m.ID, id); err != nil {
-			return nil, err
-		}
-		primaryParent = id
-	}
-
-	if _, err := tx.Exec(`
-		INSERT INTO memories (id, kind, key, content, scope, source, valid_from,
-		                      supersedes, confidence, session_ref, created_at)
-		VALUES (?,?,?,?,?,?,?,?,?,?,?)`,
-		m.ID, m.Kind, nullable(m.Key), m.Content, m.Scope, m.Source, now,
-		primaryParent, m.Confidence, nullable(m.SessionRef), now); err != nil {
-		return nil, err
-	}
-	if _, err := tx.Exec(`INSERT INTO memories_fts (content, id) VALUES (?,?)`, m.Content, m.ID); err != nil {
+	closed, _, err := applyWrite(tx, line)
+	if err != nil {
 		return nil, err
 	}
 	if err := tx.Commit(); err != nil {
 		return nil, err
 	}
-	return &WriteResult{ID: m.ID, Scope: m.Scope, Superseded: closing}, nil
+	return &WriteResult{ID: m.ID, Scope: m.Scope, Superseded: closed}, nil
 }
 
-// Current returns the live row for a subject, or nil. This is the cheapest
-// useful question at the start of a session: "what is editor.theme?"
+type liveRow struct {
+	id string
+	at time.Time
+}
+
+type querier interface {
+	Query(string, ...any) (*sql.Rows, error)
+}
+
+func (ix *Index) currentFor(q querier, scope, kind, key string) ([]liveRow, error) {
+	rows, err := q.Query(`SELECT id, valid_from FROM memories
+	                       WHERE scope=? AND kind=? AND key=? AND valid_to IS NULL`, scope, kind, key)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var out []liveRow
+	for rows.Next() {
+		var id, vf string
+		if err := rows.Scan(&id, &vf); err != nil {
+			return nil, err
+		}
+		t, _ := time.Parse(time.RFC3339Nano, vf)
+		out = append(out, liveRow{id: id, at: t})
+	}
+	return out, rows.Err()
+}
+
+// newer decides which of two writes on one subject is the live answer. Latest
+// timestamp wins; an exact tie goes to the larger id, so every machine picks
+// the same winner no matter what order the lines arrive in.
+func newer(aAt time.Time, aID string, bAt time.Time, bID string) bool {
+	return aAt.After(bAt) || (aAt.Equal(bAt) && aID > bID)
+}
+
+// applyWrite brings one write line into the index. It is the ONLY path rows
+// take in - local writes and writes pulled from another machine alike - so the
+// two can never disagree about what is current.
+//
+// The rule that makes cross-machine merge safe: on a keyed subject the newest
+// write is live and every older one is closed, whichever order they arrive.
+// Two machines that both wrote deploy.target while offline converge on the
+// same answer, with the other kept as history rather than dropped.
+//
+// Returns the ids it closed, and whether the line was new (false for a row this
+// index already has, which makes import idempotent).
+func applyWrite(tx *sql.Tx, w wirelog.WriteLine) ([]string, bool, error) {
+	var n int
+	if err := tx.QueryRow(`SELECT COUNT(*) FROM memories WHERE id=?`, w.ID).Scan(&n); err != nil {
+		return nil, false, err
+	}
+	if n > 0 {
+		return nil, false, nil
+	}
+	at, err := time.Parse(time.RFC3339Nano, w.TS)
+	if err != nil {
+		return nil, false, fmt.Errorf("index: bad timestamp on %s: %w", w.ID, err)
+	}
+	key := ""
+	if w.Key != nil {
+		key = *w.Key
+	}
+
+	var validTo, supersededBy, supersedes any
+	var closed []string
+	handled := map[string]bool{}
+
+	if key != "" {
+		rows, err := tx.Query(`SELECT id, valid_from FROM memories
+		                        WHERE scope=? AND kind=? AND key=? AND valid_to IS NULL`, w.Scope, w.Kind, key)
+		if err != nil {
+			return nil, false, err
+		}
+		var live []liveRow
+		for rows.Next() {
+			var id, vf string
+			if err := rows.Scan(&id, &vf); err != nil {
+				rows.Close()
+				return nil, false, err
+			}
+			t, _ := time.Parse(time.RFC3339Nano, vf)
+			live = append(live, liveRow{id: id, at: t})
+		}
+		rows.Close()
+
+		// Close before insert: SQLite checks the partial unique index per
+		// statement, so inserting first would trip it against the row this
+		// write is about to vacate.
+		for _, c := range live {
+			handled[c.id] = true
+			if newer(at, w.ID, c.at, c.id) {
+				if _, err := tx.Exec(`UPDATE memories SET valid_to=?, superseded_by=? WHERE id=?`, w.TS, w.ID, c.id); err != nil {
+					return nil, false, err
+				}
+				closed = append(closed, c.id)
+				supersedes = c.id
+			} else {
+				// This write is older than an answer already live - it arrived
+				// late from another machine. It goes in as history.
+				validTo, supersededBy = c.at.Format(time.RFC3339Nano), c.id
+			}
+		}
+	}
+
+	for _, s := range w.Superseded {
+		if s.ID == "" || handled[s.ID] {
+			continue
+		}
+		res, err := tx.Exec(`UPDATE memories SET valid_to=?, superseded_by=? WHERE id=? AND valid_to IS NULL`, w.TS, w.ID, s.ID)
+		if err != nil {
+			return nil, false, err
+		}
+		if k, _ := res.RowsAffected(); k > 0 {
+			closed = append(closed, s.ID)
+			if supersedes == nil {
+				supersedes = s.ID
+			}
+		}
+	}
+
+	if _, err := tx.Exec(`
+		INSERT INTO memories (id, kind, key, content, scope, source, valid_from, valid_to,
+		                      supersedes, superseded_by, confidence, session_ref, created_at)
+		VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+		w.ID, w.Kind, nullable(key), w.Content, w.Scope, w.Source, w.TS, validTo,
+		supersedes, supersededBy, w.Confidence, nullable(w.SessionRef), w.TS); err != nil {
+		return nil, false, err
+	}
+	if _, err := tx.Exec(`INSERT INTO memories_fts (content, id) VALUES (?,?)`, w.Content, w.ID); err != nil {
+		return nil, false, err
+	}
+	return closed, true, nil
+}
+
+func applyClose(tx *sql.Tx, c wirelog.CloseLine) error {
+	_, err := tx.Exec(`UPDATE memories SET valid_to=? WHERE id=? AND valid_to IS NULL`, c.TS, c.ID)
+	return err
+}
+
+// applyRescope moves a scope's memories to another scope. Where both scopes
+// hold a live answer on the same subject, the older is closed first: moving it
+// across unchanged would put two live answers on one subject.
+func applyRescope(tx *sql.Tx, from, to string) (int, error) {
+	rows, err := tx.Query(`
+		SELECT a.id, a.valid_from, b.id, b.valid_from
+		  FROM memories a JOIN memories b
+		    ON b.scope=? AND b.kind=a.kind AND b.key=a.key AND b.valid_to IS NULL
+		 WHERE a.scope=? AND a.key IS NOT NULL AND a.valid_to IS NULL`, to, from)
+	if err != nil {
+		return 0, err
+	}
+	type pair struct{ aID, aVF, bID, bVF string }
+	var pairs []pair
+	for rows.Next() {
+		var p pair
+		if err := rows.Scan(&p.aID, &p.aVF, &p.bID, &p.bVF); err != nil {
+			rows.Close()
+			return 0, err
+		}
+		pairs = append(pairs, p)
+	}
+	rows.Close()
+	for _, p := range pairs {
+		aAt, _ := time.Parse(time.RFC3339Nano, p.aVF)
+		bAt, _ := time.Parse(time.RFC3339Nano, p.bVF)
+		oldID, newID, newVF := p.bID, p.aID, p.aVF
+		if newer(bAt, p.bID, aAt, p.aID) {
+			oldID, newID, newVF = p.aID, p.bID, p.bVF
+		}
+		if _, err := tx.Exec(`UPDATE memories SET valid_to=?, superseded_by=? WHERE id=?`, newVF, newID, oldID); err != nil {
+			return 0, err
+		}
+	}
+	res, err := tx.Exec(`UPDATE memories SET scope=? WHERE scope=?`, to, from)
+	if err != nil {
+		return 0, err
+	}
+	moved, _ := res.RowsAffected()
+	if _, err := tx.Exec(`UPDATE concepts SET scope=? WHERE scope=?`, to, from); err != nil {
+		return 0, err
+	}
+	if _, err := tx.Exec(`DELETE FROM scopes WHERE scope=?`, from); err != nil {
+		return 0, err
+	}
+	return int(moved), nil
+}
+
+// ImportAll brings every wire-log line this index has not seen into it: other
+// machines' writes after a pull, or the whole history into a fresh index.
+func (ix *Index) ImportAll() (int, error) {
+	if ix.log == nil {
+		return 0, nil
+	}
+	files, err := ix.log.Files()
+	if err != nil {
+		return 0, err
+	}
+	return ix.ImportLog(files)
+}
+
+// ImportLog reads each file from where this index last stopped, applies the
+// new lines in timestamp order across every file, and records the new
+// positions in the same transaction. A refused line (unknown version, corrupt)
+// rolls the whole import back, so no position ever moves past a line that was
+// not applied.
+func (ix *Index) ImportLog(files []string) (int, error) {
+	tx, err := ix.db.Begin()
+	if err != nil {
+		return 0, err
+	}
+	defer tx.Rollback()
+
+	var entries []wirelog.Entry
+	positions := map[string]int64{}
+	for _, f := range files {
+		base := filepath.Base(f)
+		var pos int64
+		if err := tx.QueryRow(`SELECT pos FROM log_offsets WHERE file=?`, base).Scan(&pos); err != nil && !errors.Is(err, sql.ErrNoRows) {
+			return 0, err
+		}
+		// A file shorter than the saved position was replaced - restored from a
+		// backup, re-cloned. Reread it; ids make that safe.
+		if fi, err := os.Stat(f); err == nil && fi.Size() < pos {
+			pos = 0
+		}
+		es, next, err := wirelog.ReadFrom(f, pos)
+		if err != nil {
+			return 0, fmt.Errorf("index: import %s: %w", base, err)
+		}
+		entries = append(entries, es...)
+		positions[base] = next
+	}
+
+	sort.SliceStable(entries, func(i, j int) bool { return entries[i].Time().Before(entries[j].Time()) })
+
+	imported := 0
+	for _, e := range entries {
+		switch {
+		case e.Write != nil:
+			_, isNew, err := applyWrite(tx, *e.Write)
+			if err != nil {
+				return 0, err
+			}
+			if isNew {
+				imported++
+			}
+		case e.Close != nil:
+			if err := applyClose(tx, *e.Close); err != nil {
+				return 0, err
+			}
+		case e.Rescope != nil:
+			if _, err := applyRescope(tx, e.Rescope.From, e.Rescope.To); err != nil {
+				return 0, err
+			}
+		}
+	}
+	for base, pos := range positions {
+		if _, err := tx.Exec(`INSERT INTO log_offsets (file, pos) VALUES (?,?)
+		                      ON CONFLICT(file) DO UPDATE SET pos=excluded.pos`, base, pos); err != nil {
+			return 0, err
+		}
+	}
+	return imported, tx.Commit()
+}
+
+// Done marks open task_state entries finished, by id or by key. Tasks are the
+// only kind that can be closed without a replacement: a preference or a project
+// value is superseded by its successor, but a finished task has no successor,
+// and without this it sits in "where you left off" forever.
+func (ix *Index) Done(scope, key, id string) ([]string, error) {
+	var targets []string
+	if id != "" {
+		var kind string
+		err := ix.db.QueryRow(`SELECT kind FROM memories WHERE id=? AND valid_to IS NULL`, id).Scan(&kind)
+		if errors.Is(err, sql.ErrNoRows) {
+			return nil, ErrNothingToClose
+		}
+		if err != nil {
+			return nil, err
+		}
+		if kind != KindTaskState {
+			return nil, fmt.Errorf("index: %s is a %s, and only task_state entries can be marked done", id, kind)
+		}
+		targets = []string{id}
+	} else {
+		key = NormalizeKey(key)
+		if key == "" {
+			return nil, errors.New("index: done needs a key or an id")
+		}
+		args := []any{KindTaskState, key}
+		q := `SELECT id FROM memories WHERE kind=? AND key=? AND valid_to IS NULL`
+		if scopes := effectiveScopes(scope); len(scopes) > 0 {
+			q += ` AND scope IN (` + placeholders(len(scopes)) + `)`
+			for _, s := range scopes {
+				args = append(args, s)
+			}
+		}
+		rows, err := ix.db.Query(q, args...)
+		if err != nil {
+			return nil, err
+		}
+		for rows.Next() {
+			var t string
+			if err := rows.Scan(&t); err != nil {
+				rows.Close()
+				return nil, err
+			}
+			targets = append(targets, t)
+		}
+		rows.Close()
+	}
+	if len(targets) == 0 {
+		return nil, ErrNothingToClose
+	}
+
+	at := ix.now()
+	lines := make([]wirelog.CloseLine, 0, len(targets))
+	for _, t := range targets {
+		cl := wirelog.CloseLine{Header: wirelog.NewHeader(wirelog.TypeClose, at), ID: t, Reason: "done"}
+		if ix.log != nil {
+			if err := ix.log.Append(cl); err != nil {
+				return nil, fmt.Errorf("index: wire log: %w", err)
+			}
+		}
+		lines = append(lines, cl)
+	}
+	tx, err := ix.db.Begin()
+	if err != nil {
+		return nil, err
+	}
+	defer tx.Rollback()
+	for _, cl := range lines {
+		if err := applyClose(tx, cl); err != nil {
+			return nil, err
+		}
+	}
+	return targets, tx.Commit()
+}
+
 func (ix *Index) Current(scope, kind, key string) (*Memory, error) {
 	key = NormalizeKey(key)
 	var m Memory
@@ -219,8 +514,6 @@ func (ix *Index) Current(scope, kind, key string) (*Memory, error) {
 	return &m, nil
 }
 
-// History returns every row for a subject, newest first: the chain that makes
-// "what did we used to think" answerable.
 func (ix *Index) History(scope, kind, key string) ([]Memory, error) {
 	key = NormalizeKey(key)
 	rows, err := ix.db.Query(
@@ -244,7 +537,6 @@ func (ix *Index) History(scope, kind, key string) ([]Memory, error) {
 	return out, rows.Err()
 }
 
-// Hit is one search result.
 type Hit struct {
 	ID      string `json:"id"`
 	Kind    string `json:"kind"`
@@ -253,60 +545,13 @@ type Hit struct {
 	Scope   string `json:"scope"`
 	Source  string `json:"source"`
 	At      string `json:"at,omitempty"`
+	// ScopeName is the readable project name, filled in by callers that show
+	// more than one project at once. An id like g0c59d778 means nothing to read.
+	ScopeName string `json:"scope_name,omitempty"`
 }
 
-// Search runs FTS over current rows in the caller's effective scopes.
-//
-// The scope predicate is pushed into the query rather than applied to its
-// results: filtering afterwards lets a busy unrelated project eat the result
-// set and starve the recall you asked for.
-func (ix *Index) Search(q, scope string, limit int) ([]Hit, error) {
-	if limit <= 0 {
-		limit = 10
-	}
-	scopes := effectiveScopes(scope)
-	args := []any{ftsQuery(q)}
-	ph := make([]string, len(scopes))
-	for i, s := range scopes {
-		ph[i] = "?"
-		args = append(args, s)
-	}
-	args = append(args, limit)
-
-	sqlText := `
-		SELECT m.id, m.kind, m.key, m.content, m.scope, m.source
-		  FROM memories_fts f
-		  JOIN memories m ON m.id = f.id
-		 WHERE memories_fts MATCH ?
-		   AND m.valid_to IS NULL`
-	if len(scopes) > 0 {
-		sqlText += ` AND m.scope IN (` + strings.Join(ph, ",") + `)`
-	}
-	sqlText += ` ORDER BY bm25(memories_fts) LIMIT ?`
-
-	rows, err := ix.db.Query(sqlText, args...)
-	if err != nil {
-		return nil, fmt.Errorf("index: search: %w", err)
-	}
-	defer rows.Close()
-	var out []Hit
-	for rows.Next() {
-		var h Hit
-		var k sql.NullString
-		if err := rows.Scan(&h.ID, &h.Kind, &k, &h.Content, &h.Scope, &h.Source); err != nil {
-			return nil, err
-		}
-		h.Key = k.String
-		out = append(out, h)
-	}
-	return out, rows.Err()
-}
-
-// ftsQuery makes arbitrary human text safe to hand to FTS5.
-//
-// FTS5 MATCH takes a query language, not a string: "fly.io", "c++" and a
-// stray hyphen are all syntax errors. People search with the words they used,
-// so every token is quoted as a literal and the tokens are ANDed.
+// ftsQuery quotes every token as a literal: FTS5 MATCH takes a query language,
+// and "fly.io" or a stray hyphen is a syntax error in it.
 func ftsQuery(q string) string {
 	fields := strings.Fields(q)
 	if len(fields) == 0 {
@@ -319,66 +564,58 @@ func ftsQuery(q string) string {
 	return strings.Join(quoted, " ")
 }
 
-// effectiveScopes: "*" means everything, anything else means that scope plus
-// shared, so curated cross-project knowledge surfaces without being asked for.
-func effectiveScopes(scope string) []string {
-	switch scope {
-	case "*":
-		return nil
-	case "", ScopeShared:
-		return []string{ScopeShared}
-	default:
-		return []string{scope, ScopeShared}
+// Search runs FTS over current rows, with the scope predicate pushed into the
+// query so a busy unrelated project cannot starve the results.
+func (ix *Index) Search(q, scope string, limit int) ([]Hit, error) {
+	if limit <= 0 {
+		limit = 10
 	}
+	args := []any{ftsQuery(q)}
+	sqlText := `
+		SELECT m.id, m.kind, m.key, m.content, m.scope, m.source, m.valid_from
+		  FROM memories_fts f
+		  JOIN memories m ON m.id = f.id
+		 WHERE memories_fts MATCH ?
+		   AND m.valid_to IS NULL`
+	if scopes := effectiveScopes(scope); len(scopes) > 0 {
+		sqlText += ` AND m.scope IN (` + placeholders(len(scopes)) + `)`
+		for _, s := range scopes {
+			args = append(args, s)
+		}
+	}
+	sqlText += ` ORDER BY bm25(memories_fts) LIMIT ?`
+	args = append(args, limit)
+	return ix.hits(sqlText, args...)
 }
 
-func nullable(s string) any {
-	if s == "" {
-		return nil
-	}
-	return s
-}
-
-func newID() string {
-	b := make([]byte, 16)
-	for i := range b {
-		b[i] = byte(time.Now().UnixNano() >> (i % 8 * 8))
-	}
-	return fmt.Sprintf("%x-%x", time.Now().UnixNano(), b[:4])
-}
-
-// Recent returns the newest current rows in the caller's effective scopes.
-// This is what a dashboard shows: not a search, just what the agents have been
-// learning lately.
+// Recent returns the newest current rows: what the agents have been learning.
 func (ix *Index) Recent(scope string, kinds []string, limit int) ([]Hit, error) {
 	if limit <= 0 {
 		limit = 20
 	}
-	q := `SELECT id, kind, key, content, scope, source, valid_from
-	        FROM memories WHERE valid_to IS NULL`
+	q := `SELECT id, kind, key, content, scope, source, valid_from FROM memories WHERE valid_to IS NULL`
 	var args []any
 	if scopes := effectiveScopes(scope); len(scopes) > 0 {
-		ph := make([]string, len(scopes))
-		for i, s := range scopes {
-			ph[i] = "?"
+		q += ` AND scope IN (` + placeholders(len(scopes)) + `)`
+		for _, s := range scopes {
 			args = append(args, s)
 		}
-		q += ` AND scope IN (` + strings.Join(ph, ",") + `)`
 	}
 	if len(kinds) > 0 {
-		ph := make([]string, len(kinds))
-		for i, k := range kinds {
-			ph[i] = "?"
+		q += ` AND kind IN (` + placeholders(len(kinds)) + `)`
+		for _, k := range kinds {
 			args = append(args, k)
 		}
-		q += ` AND kind IN (` + strings.Join(ph, ",") + `)`
 	}
 	q += ` ORDER BY valid_from DESC LIMIT ?`
 	args = append(args, limit)
+	return ix.hits(q, args...)
+}
 
+func (ix *Index) hits(q string, args ...any) ([]Hit, error) {
 	rows, err := ix.db.Query(q, args...)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("index: query: %w", err)
 	}
 	defer rows.Close()
 	var out []Hit
@@ -394,7 +631,42 @@ func (ix *Index) Recent(scope string, kinds []string, limit int) ([]Hit, error) 
 	return out, rows.Err()
 }
 
-// Stats is the headline: how much is in here, and from whom.
+// effectiveScopes: "*" means everything; anything else means that scope plus
+// shared, so curated cross-project knowledge surfaces without being asked for.
+func effectiveScopes(scope string) []string {
+	switch scope {
+	case "*":
+		return nil
+	case "", ScopeShared:
+		return []string{ScopeShared}
+	default:
+		return []string{scope, ScopeShared}
+	}
+}
+
+func placeholders(n int) string {
+	return strings.TrimSuffix(strings.Repeat("?,", n), ",")
+}
+
+func nullable(s string) any {
+	if s == "" {
+		return nil
+	}
+	return s
+}
+
+// NewID is 128 random bits. Ids used to be derived from the clock, which was
+// fine on one machine and not on two: import skips a line whose id it already
+// has, so two machines minting the same id at the same instant would silently
+// drop one of the two memories.
+func NewID() string {
+	b := make([]byte, 16)
+	if _, err := rand.Read(b); err != nil {
+		panic("index: no randomness for ids: " + err.Error())
+	}
+	return hex.EncodeToString(b)
+}
+
 type Stats struct {
 	Current  int            `json:"current"`
 	Total    int            `json:"total"`
@@ -429,7 +701,6 @@ func (ix *Index) Stats() (*Stats, error) {
 	return s, rows.Err()
 }
 
-// ScopeInfo is one project the vault knows about.
 type ScopeInfo struct {
 	Scope    string `json:"scope"`
 	Name     string `json:"name"`
@@ -439,9 +710,25 @@ type ScopeInfo struct {
 	Missing  bool   `json:"missing,omitempty"`
 }
 
-// TouchScope records that this scope was seen here, under this name. The
-// registry is what makes a moved project recoverable: the identity stays put
-// while the name and path follow the directory around.
+// ScopeNames maps every known scope id to the name it was last seen under.
+func (ix *Index) ScopeNames() (map[string]string, error) {
+	rows, err := ix.db.Query(`SELECT scope, name FROM scopes`)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	out := map[string]string{ScopeShared: ScopeShared}
+	for rows.Next() {
+		var id, name string
+		if err := rows.Scan(&id, &name); err != nil {
+			return nil, err
+		}
+		out[id] = name
+	}
+	return out, rows.Err()
+}
+
+// TouchScope records that this scope was seen here, under this name.
 func (ix *Index) TouchScope(scope, name, path string) error {
 	if scope == "" || scope == ScopeShared {
 		return nil
@@ -454,8 +741,6 @@ func (ix *Index) TouchScope(scope, name, path string) error {
 	return err
 }
 
-// Scopes lists known projects, newest first, flagging any whose directory has
-// gone missing.
 func (ix *Index) Scopes() ([]ScopeInfo, error) {
 	rows, err := ix.db.Query(`
 		SELECT s.scope, s.name, COALESCE(s.path,''), s.last_seen,
@@ -481,25 +766,46 @@ func (ix *Index) Scopes() ([]ScopeInfo, error) {
 	return out, rows.Err()
 }
 
-// Rescope moves every memory from one scope to another and retires the old
-// registry entry. This is the manual repair for a project that moved without
-// git to carry its identity.
+// Rescope moves every memory from one scope to another. It is logged, because a
+// rescope that only touched the local index would be undone on every other
+// machine, which replays the original scope from the log.
 func (ix *Index) Rescope(from, to string) (int, error) {
+	if ix.log != nil {
+		if err := ix.log.Append(wirelog.RescopeLine{
+			Header: wirelog.NewHeader(wirelog.TypeRescope, ix.now()), From: from, To: to,
+		}); err != nil {
+			return 0, fmt.Errorf("index: wire log: %w", err)
+		}
+	}
 	tx, err := ix.db.Begin()
 	if err != nil {
 		return 0, err
 	}
 	defer tx.Rollback()
-	res, err := tx.Exec(`UPDATE memories SET scope=? WHERE scope=?`, to, from)
+	n, err := applyRescope(tx, from, to)
 	if err != nil {
 		return 0, err
 	}
-	n, _ := res.RowsAffected()
-	if _, err := tx.Exec(`UPDATE concepts SET scope=? WHERE scope=?`, to, from); err != nil {
-		return 0, err
+	return n, tx.Commit()
+}
+
+// SeedOffsets marks every existing log file as already read up to its current
+// size. For an index that was built by direct writes before offsets existed:
+// it already holds those rows, and ids would make rereading safe anyway.
+func (ix *Index) SeedOffsets() error {
+	if ix.log == nil {
+		return nil
 	}
-	if _, err := tx.Exec(`DELETE FROM scopes WHERE scope=?`, from); err != nil {
-		return 0, err
+	files, err := ix.log.Files()
+	if err != nil {
+		return err
 	}
-	return int(n), tx.Commit()
+	for _, f := range files {
+		if fi, err := os.Stat(f); err == nil {
+			if _, err := ix.db.Exec(`INSERT OR IGNORE INTO log_offsets (file, pos) VALUES (?,?)`, filepath.Base(f), fi.Size()); err != nil {
+				return err
+			}
+		}
+	}
+	return nil
 }

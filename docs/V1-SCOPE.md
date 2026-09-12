@@ -89,6 +89,8 @@ next starts; the goal is the **usable** line below, not the bottom of the table.
 | 5 | CLI: `write`, `search`, `get` | §10 | **The universal adapter.** Anything that can shell out is now connected |
 | 6 | stdio MCP: same three tools | §10 | Native surface for Claude Code and OpenCode |
 | 7 | Wire into the stack, both machines | §14 | **<- usable here.** Stop and use it |
+| 7a | **Sync**: per-machine logs, push after writes, pull at session start, systemd timer | §3.3, §4.5 | **done** - switching machines is the case the whole premise rests on |
+| 7b | Finishing tasks (`done`, `close` line) | §6.1 | **done** - without it an unkeyed task stayed in *where you left off* forever |
 
 Then, and only when the store is big enough to hurt:
 
