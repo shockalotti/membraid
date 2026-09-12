@@ -4,6 +4,7 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
+	"os"
 	"regexp"
 	"strings"
 	"time"
@@ -426,4 +427,79 @@ func (ix *Index) Stats() (*Stats, error) {
 		s.BySource[src] = n
 	}
 	return s, rows.Err()
+}
+
+// ScopeInfo is one project the vault knows about.
+type ScopeInfo struct {
+	Scope    string `json:"scope"`
+	Name     string `json:"name"`
+	Path     string `json:"path,omitempty"`
+	LastSeen string `json:"last_seen"`
+	Count    int    `json:"count"`
+	Missing  bool   `json:"missing,omitempty"`
+}
+
+// TouchScope records that this scope was seen here, under this name. The
+// registry is what makes a moved project recoverable: the identity stays put
+// while the name and path follow the directory around.
+func (ix *Index) TouchScope(scope, name, path string) error {
+	if scope == "" || scope == ScopeShared {
+		return nil
+	}
+	now := ix.now().Format(time.RFC3339Nano)
+	_, err := ix.db.Exec(`
+		INSERT INTO scopes (scope, name, path, first_seen, last_seen) VALUES (?,?,?,?,?)
+		ON CONFLICT(scope) DO UPDATE SET name=excluded.name, path=excluded.path, last_seen=excluded.last_seen`,
+		scope, name, path, now, now)
+	return err
+}
+
+// Scopes lists known projects, newest first, flagging any whose directory has
+// gone missing.
+func (ix *Index) Scopes() ([]ScopeInfo, error) {
+	rows, err := ix.db.Query(`
+		SELECT s.scope, s.name, COALESCE(s.path,''), s.last_seen,
+		       (SELECT COUNT(*) FROM memories m WHERE m.scope = s.scope AND m.valid_to IS NULL)
+		  FROM scopes s ORDER BY s.last_seen DESC`)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var out []ScopeInfo
+	for rows.Next() {
+		var s ScopeInfo
+		if err := rows.Scan(&s.Scope, &s.Name, &s.Path, &s.LastSeen, &s.Count); err != nil {
+			return nil, err
+		}
+		if s.Path != "" {
+			if _, err := os.Stat(s.Path); err != nil {
+				s.Missing = true
+			}
+		}
+		out = append(out, s)
+	}
+	return out, rows.Err()
+}
+
+// Rescope moves every memory from one scope to another and retires the old
+// registry entry. This is the manual repair for a project that moved without
+// git to carry its identity.
+func (ix *Index) Rescope(from, to string) (int, error) {
+	tx, err := ix.db.Begin()
+	if err != nil {
+		return 0, err
+	}
+	defer tx.Rollback()
+	res, err := tx.Exec(`UPDATE memories SET scope=? WHERE scope=?`, to, from)
+	if err != nil {
+		return 0, err
+	}
+	n, _ := res.RowsAffected()
+	if _, err := tx.Exec(`UPDATE concepts SET scope=? WHERE scope=?`, to, from); err != nil {
+		return 0, err
+	}
+	if _, err := tx.Exec(`DELETE FROM scopes WHERE scope=?`, from); err != nil {
+		return 0, err
+	}
+	return int(n), tx.Commit()
 }

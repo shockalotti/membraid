@@ -49,6 +49,14 @@ CREATE VIRTUAL TABLE IF NOT EXISTS memories_fts USING fts5(
   content, id UNINDEXED, tokenize='porter unicode61'
 );
 
+CREATE TABLE IF NOT EXISTS scopes (
+  scope      TEXT PRIMARY KEY,
+  name       TEXT NOT NULL,
+  path       TEXT,
+  first_seen TEXT NOT NULL,
+  last_seen  TEXT NOT NULL
+);
+
 CREATE TABLE IF NOT EXISTS concepts (
   path           TEXT PRIMARY KEY,
   scope          TEXT NOT NULL DEFAULT 'shared',

@@ -26,6 +26,8 @@ Usage:
   membraid history KEY [flags]        what we used to think
   membraid ls | cat PATH              browse the vault
   membraid status [--json]                 where you left off + what agents learned
+  membraid scopes [--json]                 every project this vault knows
+  membraid rescope --from SCOPE            adopt a moved project's memories
   membraid where                           which vault and scope am I in?
   membraid mcp --source NAME          run as an MCP server (stdio)
 
@@ -70,12 +72,57 @@ func run(args []string) error {
 	source := fs.String("source", defaultSource(), "which agent is writing")
 	limit := fs.Int("n", 10, "max results")
 	jsonOut := fs.Bool("json", false, "machine-readable output")
+	from := fs.String("from", "", "source scope for rescope")
 	if err := fs.Parse(permute(fs, rest)); err != nil {
 		return err
 	}
 	v := vault.Open(*vaultPath)
 
 	switch cmd {
+	case "scopes":
+		ix, closeIx, err := openIndex(v)
+		if err != nil {
+			return err
+		}
+		defer closeIx()
+		list, err := ix.Scopes()
+		if err != nil {
+			return err
+		}
+		if *jsonOut {
+			return json.NewEncoder(os.Stdout).Encode(list)
+		}
+		cur := scope.Resolve(*scopeFlag)
+		for _, s := range list {
+			mark := " "
+			if s.Scope == cur {
+				mark = "*"
+			}
+			note := ""
+			if s.Missing {
+				note = "  (folder missing)"
+			}
+			fmt.Printf("%s %-12s %-20s %4d  %s%s\n", mark, s.Scope, s.Name, s.Count, s.Path, note)
+		}
+		return nil
+
+	case "rescope":
+		ix, closeIx, err := openIndex(v)
+		if err != nil {
+			return err
+		}
+		defer closeIx()
+		if *from == "" {
+			return fmt.Errorf("rescope needs --from <scope>; run 'membraid scopes' to see them")
+		}
+		to := scope.Resolve(*scopeFlag)
+		n, err := ix.Rescope(*from, to)
+		if err != nil {
+			return err
+		}
+		fmt.Printf("moved %d memories from %s to %s\n", n, *from, to)
+		return nil
+
 	case "status":
 		ix, closeIx, err := openIndex(v)
 		if err != nil {
@@ -83,6 +130,7 @@ func run(args []string) error {
 		}
 		defer closeIx()
 		sc := scope.Resolve(*scopeFlag)
+		warnIfMoved(ix, sc)
 		st, err := ix.Stats()
 		if err != nil {
 			return err
@@ -127,7 +175,7 @@ func run(args []string) error {
 
 	case "where":
 		fmt.Printf("vault   %s\n", v.Root())
-		fmt.Printf("scope   %s\n", scope.Resolve(*scopeFlag))
+		fmt.Printf("scope   %s (%s)\n", scope.Resolve(*scopeFlag), scope.Name(""))
 		fmt.Println("\nOne vault holds every project. Scope is a column, not a folder,")
 		fmt.Println("so there is one brain and one thing to sync.")
 		return nil
@@ -205,7 +253,9 @@ func run(args []string) error {
 			return err
 		}
 		defer closeIx()
-		hits, err := ix.Search(strings.Join(fs.Args(), " "), scope.Resolve(*scopeFlag), *limit)
+		sc := scope.Resolve(*scopeFlag)
+		warnIfMoved(ix, sc)
+		hits, err := ix.Search(strings.Join(fs.Args(), " "), sc, *limit)
 		if err != nil {
 			return err
 		}
@@ -331,7 +381,49 @@ func openIndex(v *vault.Vault) (*index.Index, func(), error) {
 		lg.Close()
 		return nil, nil, err
 	}
+	_ = ix.TouchScope(scope.Resolve(""), scope.Name(""), scope.Dir())
 	return ix, func() { ix.Close(); lg.Close() }, nil
+}
+
+// warnIfMoved is the "things moved and now nothing is where it was" path.
+//
+// A git project carries its identity in its root commit and survives a move
+// untouched. Everything else is path-derived, so moving the directory strands
+// its memories under a scope nobody stands in any more. Rather than silently
+// starting an empty second brain, say so and offer the one command that fixes
+// it.
+func warnIfMoved(ix *index.Index, current string) {
+	known, err := ix.Scopes()
+	if err != nil {
+		return
+	}
+	// The signal is not a name match - a directory that moved usually gets a
+	// different name, which is often why it moved. The signal is that you are
+	// standing in an empty scope while some other scope holds memories and its
+	// folder is gone. Anything else is a guess, and guessing here merges
+	// unrelated projects.
+	var orphans []index.ScopeInfo
+	for _, s := range known {
+		if s.Scope == current {
+			if s.Count > 0 {
+				return // this scope has content; nothing was stranded
+			}
+			continue
+		}
+		if s.Missing && s.Count > 0 {
+			orphans = append(orphans, s)
+		}
+	}
+	if len(orphans) == 0 {
+		return
+	}
+	fmt.Fprintf(os.Stderr, "\nmembraid: this looks like a project that moved.\n"+
+		"  You are in %s (%s), which has no memories yet.\n", current, scope.Name(""))
+	for _, o := range orphans {
+		fmt.Fprintf(os.Stderr, "  %d memories are filed under %s (%s), whose folder is gone:\n      %s\n",
+			o.Count, o.Scope, o.Name, o.Path)
+	}
+	fmt.Fprintf(os.Stderr, "  To bring one across:\n      membraid rescope --from %s\n\n", orphans[0].Scope)
 }
 
 func defaultSource() string {

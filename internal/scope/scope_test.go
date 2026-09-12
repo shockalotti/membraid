@@ -2,6 +2,7 @@ package scope
 
 import (
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -13,8 +14,57 @@ func TestSlugDisambiguatesSameBasename(t *testing.T) {
 	if a == b {
 		t.Fatalf("collision: %s", a)
 	}
-	if !strings.HasPrefix(a, "api-") || !strings.HasPrefix(b, "api-") {
-		t.Errorf("slug should stay legible: %s %s", a, b)
+}
+
+// The identity carries NO readable name. An earlier version prefixed the
+// basename to keep slugs legible, which silently defeated the whole point:
+// renaming a directory changed the slug even when the project had not moved.
+// The name lives in the scope registry and is shown in output instead.
+func TestIdentityCarriesNoName(t *testing.T) {
+	if got := Slug("/home/w/work/api"); strings.Contains(got, "api") {
+		t.Errorf("identity must not embed the directory name: %s", got)
+	}
+	if Name("/home/w/work/api") != "api" {
+		t.Errorf("the readable name comes from Name(), got %q", Name("/home/w/work/api"))
+	}
+}
+
+// The property that matters: a git project keeps its identity when it moves.
+// People rename and relocate directories constantly, and a path-derived
+// identity strands every memory the moment they do.
+func TestGitProjectSurvivesAMove(t *testing.T) {
+	if _, err := exec.LookPath("git"); err != nil {
+		t.Skip("git not available")
+	}
+	base := t.TempDir()
+	before := filepath.Join(base, "before")
+	if err := os.MkdirAll(before, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	for _, args := range [][]string{
+		{"init", "-q"},
+		{"-c", "user.name=t", "-c", "user.email=t@t", "commit", "-q", "--allow-empty", "-m", "init"},
+	} {
+		cmd := exec.Command("git", append([]string{"-C", before}, args...)...)
+		if out, err := cmd.CombinedOutput(); err != nil {
+			t.Fatalf("git %v: %v\n%s", args, err, out)
+		}
+	}
+
+	got := FromDir(before)
+	if !strings.HasPrefix(got, "g") {
+		t.Fatalf("a git project should get a commit-derived identity, got %q", got)
+	}
+
+	after := filepath.Join(base, "renamed-and-moved")
+	if err := os.Rename(before, after); err != nil {
+		t.Fatal(err)
+	}
+	if moved := FromDir(after); moved != got {
+		t.Errorf("identity must survive a move: %q -> %q", got, moved)
+	}
+	if Name(after) != "renamed-and-moved" {
+		t.Errorf("the name should follow the directory: %q", Name(after))
 	}
 }
 

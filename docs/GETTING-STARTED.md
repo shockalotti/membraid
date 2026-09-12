@@ -34,6 +34,21 @@ Searches see **your project plus `shared`**. Write with `--scope shared` (or
 `scope: "shared"` from an agent) for something true everywhere - a standing
 preference, a rule you always want applied.
 
+## One vault or several?
+
+**One is the default and the recommendation.** The whole premise is coherence,
+and a second vault is a second brain that does not know about the first.
+Project separation already happens *inside* one vault through scope, which
+covers most of why anyone reaches for a second.
+
+Several is supported - `--vault` and `MEMBRAID_VAULT` point anywhere - and is
+reasonable when the boundary is about *sharing* rather than organisation: a
+work vault that syncs to a company repo, a personal one that does not.
+
+The failure to watch for is accidental: `MEMBRAID_VAULT` set in one shell and
+not another silently splits your memory in two. `membraid where` and the bar
+widget both name the vault in use, which is how you notice.
+
 ## Using an existing Obsidian vault
 
 Point membraid at a **new, empty subfolder** of your vault. It owns that
@@ -52,6 +67,39 @@ with the subfolder command in the error.
 Everything engine-owned lives in `.hot/`, which Obsidian hides: the wire log,
 and the index. `.hot/.gitignore` keeps the rebuildable index out of git while
 the log, which is history, stays in.
+
+## Moving projects around
+
+People move and rename directories constantly, so scope identity does not
+depend on the path when it can avoid it.
+
+**A git project is identified by its root commit.** Move it, rename it, clone
+it again, check out a worktree - same project, same memories, nothing to do.
+
+```sh
+membraid where
+  scope   g0c59d778 (memory-engine)     # g = git identity, name is just a label
+```
+
+**Anything outside git falls back to the path**, which cannot survive a move.
+When that happens membraid notices and tells you, rather than quietly starting
+an empty second brain:
+
+```
+membraid: this looks like a project that moved.
+  You are in p24383357 (w-b), which has no memories yet.
+  1 memories are filed under pb43b3cfb (w-a), whose folder is gone:
+      /tmp/w-a
+  To bring one across:
+      membraid rescope --from pb43b3cfb
+```
+
+It never migrates on its own: two projects that merely share a name are not
+the same project, and guessing there would merge unrelated memory.
+
+```sh
+membraid scopes     # every project the vault knows, and which folders are gone
+```
 
 ## Sync across machines
 
