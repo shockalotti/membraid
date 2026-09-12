@@ -4,11 +4,37 @@
 
 ```sh
 go install github.com/shockalotti/membraid/cmd/membraid@latest
-membraid init
+membraid install
 ```
 
-`init` creates `~/.membraid/vault` and `~/.membraid/index.db`. **Run it once, ever.**
-Not per project.
+Run it once per machine, ever. Not per project.
+
+`install` asks which of your harnesses to set up, with the ones it finds on this
+machine already ticked, shows exactly what it will change, then does it:
+
+| Harness | MCP server | Session digest | Agent skill |
+|---|---|---|---|
+| Claude Code | `~/.claude.json` | `SessionStart` hook | `~/.claude/skills/membraid` |
+| OpenCode | `opencode.json` | plugin | shares the Claude copy |
+| Grok | `grok mcp add` | none (Grok ignores hook output) | shares the Claude copy |
+| Hermes | `hermes mcp add` | plugin | `~/.hermes/skills/membraid` |
+| Omarchy bar widget | | | |
+| Sync timer (systemd) | | | |
+
+It also creates the vault at `~/.membraid/vault` if there is none. Then restart
+each harness you picked.
+
+```sh
+membraid install --dry-run                     # show the plan, change nothing
+membraid install --harness claude-code,grok    # pick without being asked
+membraid install --yes                         # every detected harness
+```
+
+Run it again whenever you like - after upgrading, or after moving the binary.
+It changes only what is out of date, never duplicates an entry, backs up any
+JSON config it edits to `<file>.membraid.bak`, and leaves every setting that is
+not membraid's alone. Harness configs point at the binary's absolute path, so
+harnesses that do not inherit your shell's PATH still find it.
 
 If `membraid: command not found`, `~/go/bin` is not on your PATH:
 
@@ -24,11 +50,12 @@ from the git root you are standing in, so you almost never type `--scope`:
 ```sh
 cd ~/Projects/api && membraid where
   vault   /home/you/.membraid/vault
-  scope   api-3f8a1c20
+  scope   g3f8a1c20 (api)
 ```
 
-`api-3f8a1c20` is the basename plus a hash of the full path, so `~/work/api` and
-`~/personal/api` stay separate brains rather than colliding.
+A git project's scope is its first commit (`g3f8a1c20`), so it follows the
+project when you move or rename the folder, and `api` is just the readable
+name. A folder with no git history gets a hash of its path (`p...`) instead.
 
 Searches see **your project plus `shared`**. Write with `--scope shared` (or
 `scope: "shared"` from an agent) for something true everywhere - a standing
@@ -152,63 +179,33 @@ stops, names the file, and leaves your local commit intact.
 On Windows there is no systemd: run `membraid sync --scheduled` from Task
 Scheduler every 5 minutes.
 
-## Wire it into your harnesses
+## Wiring a harness by hand
 
-Every harness in the stack speaks MCP over stdio. The `--source` flag is how
-memory records which agent wrote what, so give each one its own name.
-
-**Claude Code** - `~/.claude.json` or `.mcp.json` in a project:
-
-```json
-{
-  "mcpServers": {
-    "memory": {
-      "command": "membraid",
-      "args": ["mcp", "--source", "claude-code"]
-    }
-  }
-}
-```
-
-**OpenCode** - `opencode.json`:
-
-```json
-{
-  "mcp": {
-    "memory": {
-      "type": "local",
-      "command": ["membraid", "mcp", "--source", "opencode"],
-      "enabled": true
-    }
-  }
-}
-```
-
-**Grok CLI** - `.grok/settings.json`:
+`membraid install` does this for you. For a harness it does not know, or to see
+what it wrote: every harness speaks MCP over stdio, and the server is always
+named `membraid` - not `memory`, which collides with Hermes's built-in memory
+tool and with the memory features of Claude Code and Grok, so an agent can
+write to the wrong one. `--source` records which agent wrote what, so give
+each harness its own.
 
 ```json
 {
   "mcpServers": {
-    "memory": {
-      "command": "membraid",
-      "args": ["mcp", "--source", "grok"]
+    "membraid": {
+      "command": "/home/you/go/bin/membraid",
+      "args": ["mcp", "--source", "my-harness"]
     }
   }
 }
 ```
 
-**Hermes Agent** and **DSH (DeepSeek Harness)** both take stdio MCP servers in
-their own config; the command is the same, with `--source hermes` and
-`--source dsh`.
-
-Use an absolute path to the binary if a harness does not inherit your PATH.
+Installs from before the rename used the name `memory`; `membraid install`
+migrates those entries, and only those that run membraid.
 
 ## The bar widget (Omarchy)
 
-```sh
-omarchy plugin add https://github.com/shockalotti/membraid   # once published
-omarchy bar move shockalotti.membraid --section right --before omarchy.power
-```
+Pick *Omarchy bar widget* in `membraid install`. It goes just left of the power
+button, unless you have already placed it somewhere else.
 
 A brain icon in the top right, lit when a task is open or a sync failed. Click
 it for:
@@ -236,24 +233,14 @@ the whole memory would bury the few things that matter.
 membraid context        # see exactly what an agent starts with
 ```
 
-- **Claude Code** - a `SessionStart` hook in `~/.claude/settings.json`:
+- **Claude Code** - a `SessionStart` hook in `~/.claude/settings.json`.
+- **OpenCode** - a plugin at `~/.config/opencode/plugins/membraid.js`. It uses
+  `experimental.chat.system.transform`, which OpenCode marks experimental; if
+  it is ever renamed the plugin goes quiet and the rest still applies.
+- **Hermes** - a plugin that adds the digest to the first turn.
+- **Grok** - none: Grok discards what a `SessionStart` hook prints.
 
-  ```json
-  {
-    "hooks": {
-      "SessionStart": [
-        { "hooks": [ { "type": "command",
-                       "command": "/home/you/go/bin/membraid context --format claude 2>/dev/null || true",
-                       "timeout": 10 } ] }
-      ]
-    }
-  }
-  ```
-
-- **OpenCode** - a plugin at `~/.config/opencode/plugins/membraid.js` (source in
-  `opencode-plugin/`). It uses `experimental.chat.system.transform`, which
-  OpenCode marks experimental; if it is ever renamed the plugin goes quiet
-  and the instructions below still apply.
+The sources for all of these are in `assets/`, built into the binary.
 
 The digest never breaks a session: an unusable vault produces an empty digest,
 not an error.
@@ -264,7 +251,14 @@ when the user corrects you or a decision is made, key anything that can
 change, record unfinished work as a task and mark it done, never store
 secrets. It ships inside membraid, so there is nothing to install per harness.
 
-What neither can do is decide *what is worth remembering* for the model. If
+**Every harness knows how to write well.** Instructions say *when*; the
+membraid skill says *how* - whether something is worth remembering at all,
+which kind, a key another session will reuse rather than reinvent, shared or
+project scope, and how to correct a memory that turned out wrong. Harnesses
+load it only when memory comes up, so it costs nothing otherwise. Source:
+`assets/skill/SKILL.md`.
+
+What none of this can do is decide *what is worth remembering* for the model. If
 *What your agents learned* in the widget stays empty after a week, the habits
 need work, not the plumbing.
 

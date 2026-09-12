@@ -1,0 +1,5 @@
+name: membraid
+version: 0.1.0
+description: Starts each Hermes session with the membraid shared-memory digest - open tasks and what is known about the current project.
+provides_hooks:
+  - pre_llm_call

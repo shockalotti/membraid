@@ -42,6 +42,7 @@ Usage:
   membraid where                         which vault, scope and machine
   membraid ls | cat PATH                 browse the vault
   membraid mcp --source NAME             run as an MCP server (stdio)
+  membraid install [--dry-run]           set membraid up in your agent harnesses
 
 Write flags:
   --kind   preference | project_param | insight | task_state   (default insight)
@@ -87,6 +88,10 @@ func run(args []string) error {
 	scheduled := fs.Bool("scheduled", false, "sync only if due (for the timer)")
 	quiet := fs.Bool("quiet", false, "no output on success")
 	format := fs.String("format", "text", "context output: text, or claude (a SessionStart hook payload)")
+	harness := fs.String("harness", "", "install: comma-separated harness ids, instead of asking")
+	yes := fs.Bool("yes", false, "install: do not ask for confirmation")
+	dryRun := fs.Bool("dry-run", false, "install: show the plan and change nothing")
+	binFlag := fs.String("bin", "", "install: binary path harness configs should use")
 	if err := fs.Parse(permute(fs, rest)); err != nil {
 		return err
 	}
@@ -405,6 +410,9 @@ func run(args []string) error {
 			action = fs.Arg(0)
 		}
 		return timerCmd(action, v)
+
+	case "install":
+		return runInstall(v, *harness, *yes, *dryRun, *binFlag)
 
 	case "mcp":
 		return runMCP(v, cfg, *source)
