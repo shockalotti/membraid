@@ -18,14 +18,25 @@ thing or fix a wrong line in your editor.
 
 ## Who it is for
 
-Claude Code, Codex and OpenCode users. In that order. Those are the clients
-most developers actually drive, and the engine is one MCP server all of them
-point at.
+The first user's actual stack, in order: **Claude Code, OpenCode, Grok Bot,
+Hermes, DSH.** Not a guess at what most developers use - the person who will
+find out whether this helps.
 
-Everything else - DSH, Grok, a web UI, team deployments - is one more consumer
-of the same surface and gets no special treatment in the design. The earlier
-spec named DSH as a first-class target; it is not, and any sentence that reads
-that way is stale.
+That order matters more than it looks. Claude Code and OpenCode speak MCP.
+Grok Bot, Hermes and DSH may not, and DSH is documented as not MCP-native. So
+**MCP alone reaches two of five harnesses**, and a coherence test across 40% of
+a stack is not a coherence test.
+
+The answer is not to un-defer the REST API. It is the **CLI as universal
+adapter**: anything that can run a shell command can write and search, which
+covers every harness that can shell out, needs no server, no port, no auth, and
+already half exists. REST waits for a consumer that can do neither MCP nor
+shell.
+
+A web UI, team deployments and anything else are consumers of the same two
+surfaces and get no special treatment. The earlier spec named DSH as a
+first-class target; it is not - it is last in the stack and reachable by CLI
+like anything else.
 
 ## The design premise, corrected
 
@@ -77,18 +88,19 @@ next starts; the goal is the **usable** line below, not the bottom of the table.
 | 2 | Vault: markdown, frontmatter, `init` | §4 | **done** - the source of truth, and the whole simple-interaction story |
 | 3 | Hot index: tables + FTS5 | §5.1, §5.2 | Search is what makes one brain feel like one brain |
 | 4 | **Keyed supersession** | §6.2, §6.3 | Cheap, and without it the shared brain holds five contradictory opinions |
-| 5 | stdio MCP: write, search, get | §10 | The surface every harness speaks |
-| 6 | Wire into Claude Code, Codex, OpenCode | §14 | **<- usable here.** Stop and use it |
+| 5 | CLI: `write`, `search`, `get` | §10 | **The universal adapter.** Anything that can shell out is now connected |
+| 6 | stdio MCP: same three tools | §10 | Native surface for Claude Code and OpenCode |
+| 7 | Wire into the stack, both machines | §14 | **<- usable here.** Stop and use it |
 
 Then, and only when the store is big enough to hurt:
 
 | # | Slice | SPEC ref | Wait for |
 |---|---|---|---|
-| 7 | Decay in ranking | §7.2 | Search results getting noisy |
-| 8 | Distillation | §8 | Enough repetition to consolidate |
-| 9 | Sweep | §9 | The store growing unpleasantly |
+| 8 | Decay in ranking | §7.2 | Search results getting noisy |
+| 9 | Distillation | §8 | Enough repetition to consolidate |
+| 10 | Sweep | §9 | The store growing unpleasantly |
 
-Slices 7-9 are the quality layer. They make memory better. They do not make
+Slices 8-10 are the quality layer. They make memory better. They do not make
 seven tools into one brain, so they are not what v1 is testing.
 
 Single process. Local only. One client at a time.
@@ -120,8 +132,8 @@ By whether it makes the day easier. After two weeks of daily use across at
 least two harnesses and both machines:
 
 1. **Did you stop re-explaining yourself?** Something told to Claude Code on
-   Monday should be there for Codex on Thursday. If it is not, the shared brain
-   is not shared.
+   Monday should be there for OpenCode on Thursday, and for Grok Bot after
+   that. If it is not, the shared brain is not shared.
 2. **Did `git pull` on the other machine just work?** If cross-machine
    continuity needs thought, it is not continuity.
 3. **Did you ever open the vault directly?** Not to curate - just to look

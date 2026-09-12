@@ -263,7 +263,7 @@ func (ix *Index) Search(q, scope string, limit int) ([]Hit, error) {
 		limit = 10
 	}
 	scopes := effectiveScopes(scope)
-	args := []any{q}
+	args := []any{ftsQuery(q)}
 	ph := make([]string, len(scopes))
 	for i, s := range scopes {
 		ph[i] = "?"
@@ -298,6 +298,23 @@ func (ix *Index) Search(q, scope string, limit int) ([]Hit, error) {
 		out = append(out, h)
 	}
 	return out, rows.Err()
+}
+
+// ftsQuery makes arbitrary human text safe to hand to FTS5.
+//
+// FTS5 MATCH takes a query language, not a string: "fly.io", "c++" and a
+// stray hyphen are all syntax errors. People search with the words they used,
+// so every token is quoted as a literal and the tokens are ANDed.
+func ftsQuery(q string) string {
+	fields := strings.Fields(q)
+	if len(fields) == 0 {
+		return `""`
+	}
+	quoted := make([]string, 0, len(fields))
+	for _, f := range fields {
+		quoted = append(quoted, `"`+strings.ReplaceAll(f, `"`, `""`)+`"`)
+	}
+	return strings.Join(quoted, " ")
 }
 
 // effectiveScopes: "*" means everything, anything else means that scope plus
