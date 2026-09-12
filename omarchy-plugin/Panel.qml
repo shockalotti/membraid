@@ -16,6 +16,11 @@ Panel {
   ipcTarget: "shockalotti.membraid"
   manageIpc: false
 
+  // The bar sizes each slot from the widget's implicit size. Without these the
+  // widget loads, gets placed, raises no error, and occupies zero pixels.
+  implicitWidth: button.implicitWidth
+  implicitHeight: button.implicitHeight
+
   readonly property color foreground: bar ? bar.foreground : Color.foreground
   readonly property color dim: Qt.darker(foreground, 1.55)
   readonly property string fontFamily: bar ? bar.fontFamily : Style.font.family
