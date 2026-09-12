@@ -10,6 +10,7 @@ import (
 	"strings"
 
 	"github.com/wynne/memory-engine/internal/index"
+	"github.com/wynne/memory-engine/internal/scope"
 	"github.com/wynne/memory-engine/internal/vault"
 	"github.com/wynne/memory-engine/internal/wirelog"
 )
@@ -23,12 +24,15 @@ Usage:
   memory-engine get KEY [flags]            the live answer for one subject
   memory-engine history KEY [flags]        what we used to think
   memory-engine ls | cat PATH              browse the vault
+  memory-engine where                      which vault and scope am I in?
 
 Write flags:
   --kind   preference | project_param | insight | task_state   (default insight)
   --key    subject slug, e.g. editor.theme - a later write on the same key
            replaces this one instead of competing with it
-  --scope  project slug, or "shared" to surface everywhere (default shared)
+  --scope  project slug, or "shared" to surface everywhere.
+           Defaults to the current git project, so you rarely pass it.
+           Searches always see your project plus shared.
   --source which agent is writing (default: $MEMORY_SOURCE or "cli")
 
 Any agent that can run a shell command can use this. That is the point: not
@@ -59,7 +63,7 @@ func run(args []string) error {
 	vaultPath := fs.String("vault", defaultVault(), "vault directory")
 	kind := fs.String("kind", index.KindInsight, "preference|project_param|insight|task_state")
 	key := fs.String("key", "", "subject key, e.g. editor.theme")
-	scope := fs.String("scope", "", "project scope, or shared")
+	scopeFlag := fs.String("scope", "", "project scope, or shared (default: this git project)")
 	source := fs.String("source", defaultSource(), "which agent is writing")
 	limit := fs.Int("n", 10, "max results")
 	if err := fs.Parse(permute(fs, rest)); err != nil {
@@ -68,6 +72,13 @@ func run(args []string) error {
 	v := vault.Open(*vaultPath)
 
 	switch cmd {
+	case "where":
+		fmt.Printf("vault   %s\n", v.Root())
+		fmt.Printf("scope   %s\n", scope.Resolve(*scopeFlag))
+		fmt.Println("\nOne vault holds every project. Scope is a column, not a folder,")
+		fmt.Println("so there is one brain and one thing to sync.")
+		return nil
+
 	case "init":
 		if err := v.Init(); err != nil {
 			return err
@@ -116,7 +127,7 @@ func run(args []string) error {
 		defer closeIx()
 		res, err := ix.Write(index.Memory{
 			Kind: *kind, Key: *key, Content: strings.Join(fs.Args(), " "),
-			Scope: *scope, Source: *source,
+			Scope: scope.Resolve(*scopeFlag), Source: *source,
 		})
 		if err != nil {
 			return err
@@ -141,7 +152,7 @@ func run(args []string) error {
 			return err
 		}
 		defer closeIx()
-		hits, err := ix.Search(strings.Join(fs.Args(), " "), *scope, *limit)
+		hits, err := ix.Search(strings.Join(fs.Args(), " "), scope.Resolve(*scopeFlag), *limit)
 		if err != nil {
 			return err
 		}
@@ -169,7 +180,7 @@ func run(args []string) error {
 		defer closeIx()
 		found := false
 		for _, k := range []string{index.KindPreference, index.KindProjectParam, index.KindInsight, index.KindTaskState} {
-			m, err := ix.Current(scopeOr(*scope), k, fs.Arg(0))
+			m, err := ix.Current(scope.Resolve(*scopeFlag), k, fs.Arg(0))
 			if err != nil {
 				return err
 			}
@@ -193,7 +204,7 @@ func run(args []string) error {
 		}
 		defer closeIx()
 		for _, k := range []string{index.KindPreference, index.KindProjectParam, index.KindInsight, index.KindTaskState} {
-			rows, err := ix.History(scopeOr(*scope), k, fs.Arg(0))
+			rows, err := ix.History(scope.Resolve(*scopeFlag), k, fs.Arg(0))
 			if err != nil {
 				return err
 			}
@@ -252,13 +263,6 @@ func isBoolFlag(fs *flag.FlagSet, arg string) bool {
 	}
 	bf, ok := f.Value.(interface{ IsBoolFlag() bool })
 	return ok && bf.IsBoolFlag()
-}
-
-func scopeOr(s string) string {
-	if s == "" {
-		return index.ScopeShared
-	}
-	return s
 }
 
 // openIndex puts the index beside the vault, so one --vault moves everything

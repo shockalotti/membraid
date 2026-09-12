@@ -1305,7 +1305,7 @@ injection is the adapter's job** (§2, §7.1).
 | OpenCode | MCP (stdio shim) + hook for injection | Second target. `--source opencode`. |
 | Codex | MCP (stdio shim) | Third. `--source codex`. |
 | Grok | MCP (stdio shim) | Fourth. `--source grok`. |
-| DSH, or any non-MCP client | REST | Much later, and unremarkable: its plugin system is not MCP-native, so it calls REST like any other consumer. No engine feature exists for it. |
+| DSH | MCP (stdio) | Last in the stack, otherwise unremarkable. Earlier drafts claimed its plugin system was not MCP-native; that is stale. |
 | CLI | REST | `memory search "..."`, `memory propose`, etc. See M-later. |
 | Obsidian | vault + (optional) plugin | Manual curation of the vault; the engine's watcher (M9) re-indexes edited files. |
 

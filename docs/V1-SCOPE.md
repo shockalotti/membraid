@@ -22,16 +22,14 @@ The first user's actual stack, in order: **Claude Code, OpenCode, Grok Bot,
 Hermes, DSH.** Not a guess at what most developers use - the person who will
 find out whether this helps.
 
-That order matters more than it looks. Claude Code and OpenCode speak MCP.
-Grok Bot, Hermes and DSH may not, and DSH is documented as not MCP-native. So
-**MCP alone reaches two of five harnesses**, and a coherence test across 40% of
-a stack is not a coherence test.
+**All five speak MCP.** Hermes Agent supports stdio and remote HTTP servers
+with discovery at startup; Grok CLI configures them in `.grok/settings.json`;
+DSH does too, and the spec line claiming otherwise was stale. So one stdio MCP
+server reaches the entire stack, and that is the integration path.
 
-The answer is not to un-defer the REST API. It is the **CLI as universal
-adapter**: anything that can run a shell command can write and search, which
-covers every harness that can shell out, needs no server, no port, no auth, and
-already half exists. REST waits for a consumer that can do neither MCP nor
-shell.
+The CLI stays as a second surface anyway, because it costs almost nothing and
+covers anything that can run a shell command - a script, a cron job, a harness
+nobody has written yet. REST waits for a consumer that can do neither.
 
 A web UI, team deployments and anything else are consumers of the same two
 surfaces and get no special treatment. The earlier spec named DSH as a
