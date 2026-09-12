@@ -245,12 +245,13 @@ func (ix *Index) History(scope, kind, key string) ([]Memory, error) {
 
 // Hit is one search result.
 type Hit struct {
-	ID      string
-	Kind    string
-	Key     string
-	Content string
-	Scope   string
-	Source  string
+	ID      string `json:"id"`
+	Kind    string `json:"kind"`
+	Key     string `json:"key,omitempty"`
+	Content string `json:"content"`
+	Scope   string `json:"scope"`
+	Source  string `json:"source"`
+	At      string `json:"at,omitempty"`
 }
 
 // Search runs FTS over current rows in the caller's effective scopes.
@@ -343,4 +344,86 @@ func newID() string {
 		b[i] = byte(time.Now().UnixNano() >> (i % 8 * 8))
 	}
 	return fmt.Sprintf("%x-%x", time.Now().UnixNano(), b[:4])
+}
+
+// Recent returns the newest current rows in the caller's effective scopes.
+// This is what a dashboard shows: not a search, just what the agents have been
+// learning lately.
+func (ix *Index) Recent(scope string, kinds []string, limit int) ([]Hit, error) {
+	if limit <= 0 {
+		limit = 20
+	}
+	q := `SELECT id, kind, key, content, scope, source, valid_from
+	        FROM memories WHERE valid_to IS NULL`
+	var args []any
+	if scopes := effectiveScopes(scope); len(scopes) > 0 {
+		ph := make([]string, len(scopes))
+		for i, s := range scopes {
+			ph[i] = "?"
+			args = append(args, s)
+		}
+		q += ` AND scope IN (` + strings.Join(ph, ",") + `)`
+	}
+	if len(kinds) > 0 {
+		ph := make([]string, len(kinds))
+		for i, k := range kinds {
+			ph[i] = "?"
+			args = append(args, k)
+		}
+		q += ` AND kind IN (` + strings.Join(ph, ",") + `)`
+	}
+	q += ` ORDER BY valid_from DESC LIMIT ?`
+	args = append(args, limit)
+
+	rows, err := ix.db.Query(q, args...)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var out []Hit
+	for rows.Next() {
+		var h Hit
+		var k sql.NullString
+		if err := rows.Scan(&h.ID, &h.Kind, &k, &h.Content, &h.Scope, &h.Source, &h.At); err != nil {
+			return nil, err
+		}
+		h.Key = k.String
+		out = append(out, h)
+	}
+	return out, rows.Err()
+}
+
+// Stats is the headline: how much is in here, and from whom.
+type Stats struct {
+	Current  int            `json:"current"`
+	Total    int            `json:"total"`
+	Scopes   int            `json:"scopes"`
+	BySource map[string]int `json:"by_source"`
+}
+
+func (ix *Index) Stats() (*Stats, error) {
+	s := &Stats{BySource: map[string]int{}}
+	if err := ix.db.QueryRow(`SELECT COUNT(*) FROM memories WHERE valid_to IS NULL`).Scan(&s.Current); err != nil {
+		return nil, err
+	}
+	if err := ix.db.QueryRow(`SELECT COUNT(*) FROM memories`).Scan(&s.Total); err != nil {
+		return nil, err
+	}
+	if err := ix.db.QueryRow(`SELECT COUNT(DISTINCT scope) FROM memories`).Scan(&s.Scopes); err != nil {
+		return nil, err
+	}
+	rows, err := ix.db.Query(`SELECT source, COUNT(*) FROM memories WHERE valid_to IS NULL GROUP BY source`)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var src string
+		var n int
+		if err := rows.Scan(&src, &n); err != nil {
+			return nil, err
+		}
+		s.BySource[src] = n
+	}
+	return s, rows.Err()
 }

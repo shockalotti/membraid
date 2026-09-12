@@ -80,11 +80,28 @@ func Open(root string) *Vault { return &Vault{root: root} }
 func (v *Vault) Root() string    { return v.root }
 func (v *Vault) HotPath() string { return filepath.Join(v.root, HotDir) }
 
-// Init creates the skeleton. Refuses on an existing vault rather than writing
-// into one: re-initialising over live memory is never what anyone meant.
+// IndexPath keeps the hot index inside the vault's engine-owned directory
+// rather than beside the vault. Putting it beside would drop a SQLite file
+// into whatever contains the vault - for a folder inside an Obsidian vault,
+// that is the middle of someone's notes.
+func (v *Vault) IndexPath() string { return filepath.Join(v.root, HotDir, "index.db") }
+
+// Init creates the skeleton.
+//
+// An existing EMPTY directory is adopted rather than refused: pointing at a
+// folder inside an Obsidian vault is a first-class way to use this, and people
+// make that folder before they think to run init. An existing directory with
+// anything in it is refused, because re-initialising over live notes is never
+// what anyone meant.
 func (v *Vault) Init() error {
-	if _, err := os.Stat(v.root); err == nil {
-		return fmt.Errorf("vault: %s already exists (refusing to re-initialise)", v.root)
+	if entries, err := os.ReadDir(v.root); err == nil {
+		if len(entries) > 0 {
+			return fmt.Errorf("vault: %s already has files in it (refusing to initialise over them).\n"+
+				"To use a folder inside an existing Obsidian vault, point at a new empty subfolder:\n"+
+				"  membraid init --vault '%s/Agent Memory'", v.root, strings.TrimRight(v.root, "/"))
+		}
+	} else if !os.IsNotExist(err) {
+		return err
 	}
 	for _, d := range append(Folders, HotDir) {
 		if err := os.MkdirAll(filepath.Join(v.root, d), 0o700); err != nil {
@@ -101,6 +118,12 @@ func (v *Vault) Init() error {
 		"- `.hot/` is engine bookkeeping. Leave it alone.\n\n" +
 		"Nothing here needs tending. Tending it just makes it better.\n"
 	if err := os.WriteFile(filepath.Join(v.root, "index.md"), []byte(readme), 0o600); err != nil {
+		return err
+	}
+	// The wire log is history and belongs in git. The index is a rebuildable
+	// cache and does not.
+	ignore := "# The index is rebuilt from the wire log and the vault.\nindex.db\nindex.db-wal\nindex.db-shm\n"
+	if err := os.WriteFile(filepath.Join(v.root, HotDir, ".gitignore"), []byte(ignore), 0o600); err != nil {
 		return err
 	}
 	return os.WriteFile(filepath.Join(v.root, "log.md"), []byte("# Change log\n\nNewest first.\n"), 0o600)

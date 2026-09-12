@@ -3,6 +3,7 @@
 package main
 
 import (
+	"encoding/json"
 	"flag"
 	"fmt"
 	"os"
@@ -24,7 +25,8 @@ Usage:
   membraid get KEY [flags]            the live answer for one subject
   membraid history KEY [flags]        what we used to think
   membraid ls | cat PATH              browse the vault
-  membraid where                      which vault and scope am I in?
+  membraid status [--json]                 where you left off + what agents learned
+  membraid where                           which vault and scope am I in?
   membraid mcp --source NAME          run as an MCP server (stdio)
 
 Write flags:
@@ -67,12 +69,59 @@ func run(args []string) error {
 	scopeFlag := fs.String("scope", "", "project scope, or shared (default: this git project)")
 	source := fs.String("source", defaultSource(), "which agent is writing")
 	limit := fs.Int("n", 10, "max results")
+	jsonOut := fs.Bool("json", false, "machine-readable output")
 	if err := fs.Parse(permute(fs, rest)); err != nil {
 		return err
 	}
 	v := vault.Open(*vaultPath)
 
 	switch cmd {
+	case "status":
+		ix, closeIx, err := openIndex(v)
+		if err != nil {
+			return err
+		}
+		defer closeIx()
+		sc := scope.Resolve(*scopeFlag)
+		st, err := ix.Stats()
+		if err != nil {
+			return err
+		}
+		// task_state first: "where did I leave off" is the question this
+		// answers, and it is the one a glance should settle.
+		doing, err := ix.Recent(sc, []string{index.KindTaskState}, 5)
+		if err != nil {
+			return err
+		}
+		learned, err := ix.Recent(sc, []string{index.KindPreference, index.KindProjectParam, index.KindInsight}, 12)
+		if err != nil {
+			return err
+		}
+		if *jsonOut {
+			return json.NewEncoder(os.Stdout).Encode(map[string]any{
+				"scope": sc, "vault": v.Root(), "stats": st,
+				"doing": doing, "learned": learned,
+			})
+		}
+		fmt.Printf("scope %s  -  %d current, %d total, %d projects\n", sc, st.Current, st.Total, st.Scopes)
+		if len(doing) > 0 {
+			fmt.Println("\nwhere you left off")
+			for _, h := range doing {
+				fmt.Printf("  %s (%s)\n", h.Content, h.Source)
+			}
+		}
+		if len(learned) > 0 {
+			fmt.Println("\nrecently learned")
+			for _, h := range learned {
+				k := h.Key
+				if k == "" {
+					k = "-"
+				}
+				fmt.Printf("  %-14s %-16s %s (%s)\n", h.Kind, k, h.Content, h.Source)
+			}
+		}
+		return nil
+
 	case "mcp":
 		return runMCP(v, *source)
 
@@ -269,14 +318,15 @@ func isBoolFlag(fs *flag.FlagSet, arg string) bool {
 	return ok && bf.IsBoolFlag()
 }
 
-// openIndex puts the index beside the vault, so one --vault moves everything
-// and a git clone of the vault carries the wire log with it.
+// openIndex puts the index inside the vault's .hot directory, beside the wire
+// log: one --vault moves everything, Obsidian hides it, and .hot/.gitignore
+// keeps the rebuildable cache out of git while the log stays in.
 func openIndex(v *vault.Vault) (*index.Index, func(), error) {
 	lg, err := wirelog.Open(v.HotPath())
 	if err != nil {
 		return nil, nil, err
 	}
-	ix, err := index.Open(filepath.Join(filepath.Dir(v.Root()), "index.db"), lg)
+	ix, err := index.Open(v.IndexPath(), lg)
 	if err != nil {
 		lg.Close()
 		return nil, nil, err

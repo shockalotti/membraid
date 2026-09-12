@@ -34,6 +34,25 @@ Searches see **your project plus `shared`**. Write with `--scope shared` (or
 `scope: "shared"` from an agent) for something true everywhere - a standing
 preference, a rule you always want applied.
 
+## Using an existing Obsidian vault
+
+Point membraid at a **new, empty subfolder** of your vault. It owns that
+subtree and touches nothing else:
+
+```sh
+membraid init --vault "~/Documents/MyVault/Agent Memory"
+export MEMBRAID_VAULT="$HOME/Documents/MyVault/Agent Memory"
+```
+
+Your notes, agent memory, and Obsidian's graph all live together - wikilinks
+work across the boundary - while membraid only ever writes inside its own
+folder. Pointing it at a vault root that already has files in it is refused,
+with the subfolder command in the error.
+
+Everything engine-owned lives in `.hot/`, which Obsidian hides: the wire log,
+and the index. `.hot/.gitignore` keeps the rebuildable index out of git while
+the log, which is history, stays in.
+
 ## Sync across machines
 
 The vault is a git repo. That is the whole sync protocol.
@@ -99,6 +118,18 @@ their own config; the command is the same, with `--source hermes` and
 `--source dsh`.
 
 Use an absolute path to the binary if a harness does not inherit your PATH.
+
+## The bar widget (Omarchy)
+
+```sh
+omarchy plugin add https://github.com/shockalotti/membraid   # once published
+omarchy bar move shockalotti.membraid --section right --before omarchy.power
+```
+
+A brain icon in the top right. Click it for where you left off and what your
+agents have been learning, across every harness. It reads `membraid status
+--json` and writes nothing - if the panel and the CLI disagree, the CLI is
+right.
 
 ## The three tools an agent sees
 
