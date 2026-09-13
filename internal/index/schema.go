@@ -6,7 +6,7 @@
 // may not.
 package index
 
-const schemaVersion = 2
+const schemaVersion = 3
 
 const schemaSQL = `
 CREATE TABLE IF NOT EXISTS memories (
@@ -96,4 +96,39 @@ CREATE INDEX IF NOT EXISTS idx_concepts_key ON concepts(scope, type, key) WHERE 
 CREATE VIRTUAL TABLE IF NOT EXISTS concepts_fts USING fts5(
   title, summary, excerpt, path UNINDEXED, tokenize='porter unicode61'
 );
+
+-- Embeddings for optional vector search (docs/SEARCH-EVALUATION.md). Derived,
+-- per-machine state: never written to the wire log, rebuilt by re-embedding.
+-- model names the embedder, so vectors from different models are never mixed.
+-- full is float32 little-endian; bits holds one sign bit per dimension, for a
+-- cheap first pass before exact rescoring.
+CREATE TABLE IF NOT EXISTS vectors (
+  id    TEXT NOT NULL,
+  model TEXT NOT NULL,
+  full  BLOB NOT NULL,
+  bits  BLOB NOT NULL,
+  PRIMARY KEY (id, model)
+);
+CREATE INDEX IF NOT EXISTS idx_vectors_model_bits ON vectors(model, id, bits);
+
+-- vector_gen moves whenever what vector search can see changes: a memory
+-- written, closed or rescoped, or a vector stored or removed. A long-lived
+-- process compares it before searching and reloads its in-memory copy only when
+-- it moved. last_retrieved is deliberately not watched: every search touches it.
+INSERT OR IGNORE INTO meta (key, value) VALUES ('vector_gen', '0');
+CREATE TRIGGER IF NOT EXISTS vector_gen_memory_insert AFTER INSERT ON memories BEGIN
+  UPDATE meta SET value = CAST(value AS INTEGER) + 1 WHERE key = 'vector_gen';
+END;
+CREATE TRIGGER IF NOT EXISTS vector_gen_memory_update AFTER UPDATE OF valid_to, scope ON memories BEGIN
+  UPDATE meta SET value = CAST(value AS INTEGER) + 1 WHERE key = 'vector_gen';
+END;
+CREATE TRIGGER IF NOT EXISTS vector_gen_vector_insert AFTER INSERT ON vectors BEGIN
+  UPDATE meta SET value = CAST(value AS INTEGER) + 1 WHERE key = 'vector_gen';
+END;
+CREATE TRIGGER IF NOT EXISTS vector_gen_vector_update AFTER UPDATE ON vectors BEGIN
+  UPDATE meta SET value = CAST(value AS INTEGER) + 1 WHERE key = 'vector_gen';
+END;
+CREATE TRIGGER IF NOT EXISTS vector_gen_vector_delete AFTER DELETE ON vectors BEGIN
+  UPDATE meta SET value = CAST(value AS INTEGER) + 1 WHERE key = 'vector_gen';
+END;
 `

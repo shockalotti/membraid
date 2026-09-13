@@ -11,6 +11,7 @@ import (
 	"regexp"
 	"sort"
 	"strings"
+	"sync"
 	"time"
 
 	_ "modernc.org/sqlite"
@@ -38,6 +39,12 @@ type Index struct {
 	log          *wirelog.Log
 	now          func() time.Time
 	halflifeDays float64
+
+	// In-memory sign bits for vector search, used by long-lived processes
+	// (see EnableVectorCache). vmu guards vcache.
+	vmu      sync.Mutex
+	vcacheOn bool
+	vcache   *vectorCache
 }
 
 // Open opens the index. Transactions take the write lock when they begin
