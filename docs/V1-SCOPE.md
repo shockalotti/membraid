@@ -154,7 +154,7 @@ does not exist on day one, and each is cheap to add when it does.
 | REST API, TLS, bearer tokens, token->source | §11, §12 | Remote or non-MCP consumers |
 | `backup` online API + capture order | §3.3 | Data worth backing up |
 | `reindex` flock gating, `init` refusal | §3.3 | A resident daemon to race |
-| Schema + protocol version skew | §5.3 | A second shipped version |
+| Schema + protocol version skew | §5.3 | Releases now ship (`membraid update`), so machines can run different versions. The wire log is the only thing that crosses machines and its format is locked; each machine's index is its own and is rebuilt from the log. What remains is a guard for an older binary opening a newer index, before any schema change after v3 |
 | Full scope ladder, `unscoped` quarantine | §17 | More than a `--scope` flag needs |
 | Obsidian watcher | §16 M9 | The `reindex`-after-edit workflow to annoy someone |
 | Vector search | §16 M11 | Decided, no longer deferred: pure Go over the existing SQLite index, optional local embeddings (EmbeddingGemma via Ollama, or built-in all-MiniLM), vector-only when on. Measurements and rejected alternatives in [SEARCH-EVALUATION.md](SEARCH-EVALUATION.md) |

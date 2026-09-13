@@ -3,9 +3,13 @@
 ## Install, once
 
 ```sh
-go install github.com/shockalotti/membraid/cmd/membraid@latest
+curl -fsSL https://github.com/shockalotti/membraid/releases/latest/download/install.sh | sh
 membraid install
 ```
+
+Or, with Go 1.27 or newer: `go install github.com/shockalotti/membraid/cmd/membraid@latest`.
+Keep it current with `membraid update`; running harnesses pick up a new version
+when they restart.
 
 Run it once per machine, ever. Not per project.
 

@@ -49,6 +49,8 @@ Usage:
   membraid ls | cat PATH                 browse the vault
   membraid mcp --source NAME             run as an MCP server (stdio)
   membraid install [--dry-run]           set membraid up in your agent harnesses
+  membraid version [--json]              which release this is
+  membraid update [--check]              replace this binary with the latest release
 
 Write flags:
   --kind   preference | project_param | insight | task_state   (default insight)
@@ -103,6 +105,8 @@ func run(args []string) error {
 	yes := fs.Bool("yes", false, "install: do not ask for confirmation")
 	dryRun := fs.Bool("dry-run", false, "install: show the plan and change nothing")
 	binFlag := fs.String("bin", "", "install: binary path harness configs should use")
+	check := fs.Bool("check", false, "update: only report whether a newer release exists")
+	releaseTag := fs.String("version", "", "update: install this release (e.g. v0.4.0) instead of the latest")
 	if err := fs.Parse(permute(fs, rest)); err != nil {
 		return err
 	}
@@ -114,6 +118,12 @@ func run(args []string) error {
 	v := vault.Open(*vaultPath)
 
 	switch cmd {
+	case "version":
+		return runVersion(*jsonOut)
+
+	case "update":
+		return runUpdate(*check, *releaseTag, *jsonOut)
+
 	case "init":
 		if err := v.Init(); err != nil {
 			return err

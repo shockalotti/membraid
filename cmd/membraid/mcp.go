@@ -231,7 +231,7 @@ func (s *mcpServer) dispatch(req rpcRequest) {
 		s.reply(req.ID, map[string]any{
 			"protocolVersion": p.ProtocolVersion,
 			"capabilities":    map[string]any{"tools": map[string]any{}},
-			"serverInfo":      map[string]any{"name": "membraid", "version": "0.3.0"},
+			"serverInfo":      map[string]any{"name": "membraid", "version": currentVersion()},
 			"instructions":    s.instructions(),
 		})
 	case "notifications/initialized", "initialized":

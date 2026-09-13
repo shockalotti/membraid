@@ -17,6 +17,9 @@ import (
 
 // builtinRepo is all-MiniLM-L6-v2: R@5 0.91 in the evaluation, 91 MB download,
 // run by hugot's pure Go backend so the binary needs no CGO and no runtime.
+// BuiltinIncluded reports whether this binary carries the built-in model.
+const BuiltinIncluded = true
+
 const (
 	builtinRepo  = "sentence-transformers/all-MiniLM-L6-v2"
 	builtinOnnx  = "onnx/model.onnx"

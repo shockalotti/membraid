@@ -78,3 +78,18 @@ harness CLIs stubbed.
    only certifies origin, whereas retaining relicensing rights requires a CLA.)*
 
 The project's distributed code is [Apache-2.0](LICENSE).
+
+## Releasing
+
+Pushing a version tag publishes a release:
+
+```sh
+git tag v0.4.0
+git push origin v0.4.0
+```
+
+`.github/workflows/release.yml` runs the tests, builds every platform (Linux,
+macOS and Windows on amd64 and arm64) in a full and a lite build with the tag
+stamped in, writes `checksums.txt`, and publishes them with `install.sh` as a
+GitHub release. `membraid update` and `install.sh` download from the latest
+release and refuse any file that does not match its checksum.

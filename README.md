@@ -45,12 +45,23 @@ membraid is one brain behind all of them.
 
 ## Install
 
-Needs Go 1.27 or newer (prebuilt binaries are not published yet).
+On Linux or macOS:
 
 ```sh
-go install github.com/shockalotti/membraid/cmd/membraid@latest
+curl -fsSL https://github.com/shockalotti/membraid/releases/latest/download/install.sh | sh
 membraid install
 ```
+
+The script downloads the build for your machine from the latest
+[release](https://github.com/shockalotti/membraid/releases), checks it against
+the release's checksums, and puts it in `~/.local/bin`. `MEMBRAID_LITE=1` picks
+the lite build, about 8 MB smaller, which searches by meaning through Ollama
+only. On Windows, download `membraid-windows-amd64.exe` from the release. With
+Go 1.27 or newer, `go install github.com/shockalotti/membraid/cmd/membraid@latest`
+works too.
+
+Later, `membraid update` replaces the binary with the newest release, checked
+the same way (`membraid update --check` only looks).
 
 `install` detects your harnesses, asks which to set up, shows exactly what it
 will change, and does it. It is safe to run again.

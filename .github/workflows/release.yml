@@ -1,0 +1,53 @@
+name: Release
+
+# Pushing a tag like v0.4.0 publishes a GitHub release with a binary for every
+# platform, in a full build (with the built-in embedding model) and a lite one
+# (-tags nobuiltin: smaller, Ollama only), plus checksums.txt. `membraid update`
+# and install.sh download from these releases and refuse any file whose
+# checksum does not match.
+on:
+  push:
+    tags: ["v*"]
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      - name: go test
+        run: go test ./...
+
+      - name: Build every platform
+        env:
+          CGO_ENABLED: "0"
+        run: |
+          mkdir dist
+          for os in linux darwin windows; do
+            for arch in amd64 arm64; do
+              ext=""; [ "$os" = windows ] && ext=".exe"
+              flags=(-trimpath -ldflags "-s -w -X main.version=${GITHUB_REF_NAME}")
+              GOOS=$os GOARCH=$arch go build "${flags[@]}" -o "dist/membraid-$os-$arch$ext" ./cmd/membraid
+              GOOS=$os GOARCH=$arch go build "${flags[@]}" -tags nobuiltin -o "dist/membraid-$os-$arch-lite$ext" ./cmd/membraid
+            done
+          done
+          cd dist && sha256sum membraid-* > checksums.txt && cat checksums.txt
+
+      - name: The linux build reports its version
+        run: |
+          got=$(dist/membraid-linux-amd64 version)
+          echo "$got"
+          case "$got" in *"${GITHUB_REF_NAME} "*) ;; *) echo "::error::version stamp missing"; exit 1 ;; esac
+
+      - name: Publish
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh release create "$GITHUB_REF_NAME" dist/* install.sh --title "membraid $GITHUB_REF_NAME" --generate-notes
