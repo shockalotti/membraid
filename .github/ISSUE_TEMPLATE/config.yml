@@ -1,0 +1,7 @@
+# Blank issues stay allowed for now: without Discussions enabled there is nowhere
+# else for questions and ideas. Bugs should use the structured Bug report form.
+blank_issues_enabled: true
+contact_links:
+  - name: Getting started guide
+    url: https://github.com/shockalotti/membraid/blob/master/docs/GETTING-STARTED.md
+    about: Installation, sync, harness setup and how agents use memory. Most questions are answered here.

@@ -1,0 +1,54 @@
+name: CI
+
+# Builds and tests membraid on every push to master and on pull requests.
+# modernc SQLite is pure Go, so no CGO or C toolchain is needed. The end-to-end
+# tests drive the built binary and need git; the stress test runs here too,
+# because concurrency bugs are exactly what a laptop run misses.
+on:
+  push:
+    branches: [master]
+  pull_request:
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      - name: gofmt check
+        run: |
+          fmtout=$(gofmt -l .)
+          if [ -n "$fmtout" ]; then
+            echo "The following files are not gofmt'd:"
+            echo "$fmtout"
+            echo "Run: gofmt -w ."
+            exit 1
+          fi
+
+      - name: No em dashes (project writing style)
+        run: |
+          if grep -rnP --exclude-dir=.git '\x{2014}' . ; then
+            echo "::error::Em dashes found. Use a hyphen or restructure the sentence."
+            exit 1
+          fi
+
+      - name: go vet
+        run: go vet ./...
+
+      - name: go build
+        run: go build ./...
+
+      - name: Windows still compiles
+        run: GOOS=windows go build -o /dev/null ./cmd/membraid
+
+      - name: go test
+        run: go test ./...

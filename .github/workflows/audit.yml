@@ -1,0 +1,44 @@
+name: Audit
+
+# Security signal, separate from CI correctness. Runs weekly as well as on push,
+# so a newly disclosed vulnerability in a dependency fails loudly even when no
+# code changed. gitleaks matters doubly here: membraid's one hard rule is that
+# memory never holds secrets, and the repo should hold none either.
+on:
+  push:
+    branches: [master]
+  schedule:
+    - cron: '20 6 * * 1' # weekly, Monday
+  workflow_dispatch:
+
+permissions: read-all
+
+jobs:
+  audit:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0 # gitleaks scans full history
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      - name: Single binary, no server database
+        run: |
+          if grep -iE 'postgres|mysql|redis|mongo' go.mod; then
+            echo "::error::go.mod pulled in a server database driver; membraid is a single binary with SQLite"
+            exit 1
+          fi
+
+      - name: govulncheck
+        run: |
+          go install golang.org/x/vuln/cmd/govulncheck@latest
+          govulncheck ./...
+
+      - name: gitleaks
+        run: |
+          go install github.com/zricethezav/gitleaks/v8@latest
+          gitleaks detect --source . --no-banner -v

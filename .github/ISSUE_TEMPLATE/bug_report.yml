@@ -1,0 +1,77 @@
+name: Bug report
+description: Report a reproducible bug in membraid (not a setup question or feature request).
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        **Before you start, please [search existing issues](https://github.com/shockalotti/membraid/issues?q=is%3Aissue).** It may already be reported or fixed.
+
+        **Never paste memory contents, vault files or harness configs that could hold secrets or private data.** Trim them to what shows the bug.
+  - type: checkboxes
+    id: prechecks
+    attributes:
+      label: Before submitting
+      options:
+        - label: I've searched existing issues and this isn't a duplicate.
+          required: true
+        - label: I've checked what I'm pasting for tokens, keys and private data.
+          required: true
+  - type: textarea
+    id: what-happened
+    attributes:
+      label: What's the bug?
+      description: What happened, and what did you expect to happen instead?
+    validations:
+      required: true
+  - type: textarea
+    id: steps
+    attributes:
+      label: Steps to reproduce
+      description: Exact steps, including the membraid commands or agent actions involved.
+      placeholder: |
+        1. membraid write "..." --key ...
+        2. On the other machine, membraid sync
+        3. Observe ...
+    validations:
+      required: true
+  - type: input
+    id: version
+    attributes:
+      label: membraid version / commit
+      description: The commit you installed from, or the output of `go version -m $(which membraid) | head -3`.
+    validations:
+      required: true
+  - type: dropdown
+    id: harness
+    attributes:
+      label: Where did it happen?
+      multiple: true
+      options:
+        - CLI
+        - Claude Code
+        - OpenCode
+        - Grok
+        - Hermes
+        - Other MCP client
+        - Sync between machines
+        - Omarchy bar widget
+        - membraid install
+    validations:
+      required: true
+  - type: dropdown
+    id: os
+    attributes:
+      label: Operating system
+      options:
+        - Linux
+        - macOS
+        - Windows
+        - Other
+    validations:
+      required: true
+  - type: textarea
+    id: extra
+    attributes:
+      label: Logs, `membraid status --json`, or anything else
+      description: Optional, but it speeds up a fix. MCP servers log to stderr; for Hermes see ~/.hermes/logs/mcp-stderr.log.
