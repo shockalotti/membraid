@@ -8,6 +8,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/shockalotti/membraid/internal/index"
 )
@@ -133,5 +134,32 @@ func TestEmbedPendingBatchesAndStops(t *testing.T) {
 	ix.Write(index.Memory{Kind: index.KindInsight, Content: "one more", Source: "x"})
 	if n, _ := embedPending(context.Background(), e, ix, 10); n != 1 {
 		t.Errorf("want only the new memory embedded, got %d", n)
+	}
+}
+
+// An open task nobody has touched in weeks is still shown where the user left
+// off, but the digest says so and suggests finishing or updating it.
+func TestDigestFlagsStaleTasks(t *testing.T) {
+	ix := testIndex(t)
+	clock := time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)
+	ix.SetClock(func() time.Time { return clock })
+	ix.Write(index.Memory{Kind: index.KindTaskState, Key: "task.old", Content: "halfway through the old migration", Source: "x"})
+	clock = clock.Add(20 * 24 * time.Hour)
+	ix.Write(index.Memory{Kind: index.KindTaskState, Key: "task.new", Content: "starting the new feature", Source: "x"})
+
+	text, err := buildContext(ix, "shared", "test")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, line := range strings.Split(text, "\n") {
+		switch {
+		case strings.Contains(line, "old migration") && !strings.Contains(line, "untouched 20 days"):
+			t.Errorf("the stale task must be flagged: %q", line)
+		case strings.Contains(line, "new feature") && strings.Contains(line, "untouched"):
+			t.Errorf("a fresh task must not be flagged: %q", line)
+		}
+	}
+	if !strings.Contains(text, "old migration") {
+		t.Error("a stale task must still be shown, not hidden")
 	}
 }

@@ -38,6 +38,7 @@ Usage:
   membraid context [--format claude]     the short digest an agent starts a session with
   membraid context --explain             the digest, and why each memory was chosen
   membraid embed                         make every memory searchable by meaning (embeddings on)
+  membraid sweep [--json]                weekly upkeep: count what has gone unused, flag stale tasks
   membraid sync [--json]                 commit, pull, push, import - once
   membraid config [set KEY VALUE]        this machine's settings
   membraid timer install|remove|status   periodic sync via systemd (Linux)
@@ -329,6 +330,7 @@ func run(args []string) error {
 			if err != nil {
 				return err
 			}
+			stale, _ := ix.StaleTasks(sc)
 			learned, err := ix.Recent(sc, []string{index.KindPreference, index.KindProjectParam, index.KindInsight}, 12)
 			if err != nil {
 				return err
@@ -357,11 +359,16 @@ func run(args []string) error {
 				return json.NewEncoder(os.Stdout).Encode(map[string]any{
 					"scope": sc, "vault": v.Root(), "host": wirelog.SafeHost(cfg.HostName()),
 					"stats": st, "doing": doing, "learned": learned, "sync": syncInfo,
-					"search": searchStatus(cfg, ix),
+					"search":      searchStatus(cfg, ix),
+					"stale_tasks": stale, "sweep": ix.LastSweep(),
 				})
 			}
 			fmt.Printf("scope %s  -  %d current, %d total, %d projects\n", sc, st.Current, st.Total, st.Scopes)
 			fmt.Println("sync  " + describeSync(cfg, ss))
+			if r := ix.LastSweep(); r != nil {
+				fmt.Printf("sweep  %s: %d unused for %d+ days, %d open tasks untouched for %d+ days\n",
+					r.At[:10], r.StaleRows, index.SweepUnusedDays, r.StaleTasks, index.StaleTaskDays)
+			}
 			switch si := searchStatus(cfg, ix); si["mode"] {
 			case "vector":
 				fmt.Printf("search  by meaning (%s): %d of %d memories embedded\n", si["model"], si["embedded"], si["current"])
@@ -371,7 +378,11 @@ func run(args []string) error {
 			if len(doing) > 0 {
 				fmt.Println("\nwhere you left off")
 				for _, h := range doing {
-					fmt.Printf("  %s (%s, %s)  [done: membraid done --id %s]\n", h.Content, h.ScopeName, h.Source, h.ID)
+					note := ""
+					if days, ok := stale[h.ID]; ok {
+						note = fmt.Sprintf(" (untouched %d days)", int(days))
+					}
+					fmt.Printf("  %s (%s, %s)%s  [done: membraid done --id %s]\n", h.Content, h.ScopeName, h.Source, note, h.ID)
 				}
 			}
 			if len(learned) > 0 {
@@ -449,6 +460,28 @@ func run(args []string) error {
 				fmt.Println(describeResult(res, imported))
 			}
 			embedAfterSync(cfg, ix, *quiet)
+			if *scheduled && ix.SweepDue() {
+				if r, err := runSweep(v, ix); err != nil {
+					fmt.Fprintln(os.Stderr, "membraid: sweep:", err)
+				} else if !*quiet {
+					fmt.Println(sweepSummary(r))
+				}
+			}
+			return nil
+		})
+
+	case "sweep":
+		return withIndex(v, cfg, func(ix *index.Index) error {
+			r, err := runSweep(v, ix)
+			if err != nil {
+				return err
+			}
+			if *jsonOut {
+				return json.NewEncoder(os.Stdout).Encode(r)
+			}
+			if !*quiet {
+				fmt.Println(sweepSummary(r))
+			}
 			return nil
 		})
 
@@ -536,6 +569,24 @@ func run(args []string) error {
 // Small on purpose. The whole memory would flood the context window and bury
 // the few things that matter; this is the digest, and memory_search is there
 // for everything else.
+// runSweep runs a sweep and records its summary in the vault's log.md, where a
+// person browsing the vault sees it (SPEC §9). The next sync commits it.
+func runSweep(v *vault.Vault, ix *index.Index) (*index.SweepReport, error) {
+	r, err := ix.Sweep()
+	if err != nil {
+		return nil, err
+	}
+	if err := v.AppendLog(sweepSummary(r)); err != nil {
+		return r, err
+	}
+	return r, nil
+}
+
+func sweepSummary(r *index.SweepReport) string {
+	return fmt.Sprintf("sweep: %d current memories; %d unused for %d+ days, left to fade; %d open tasks untouched for %d+ days",
+		r.Current, r.StaleRows, index.SweepUnusedDays, r.StaleTasks, index.StaleTaskDays)
+}
+
 // digestItems is how many known facts a session starts with.
 const digestItems = 12
 
@@ -560,6 +611,7 @@ func buildContext(ix *index.Index, sc, name string) (string, error) {
 	if err != nil {
 		return "", err
 	}
+	stale, _ := ix.StaleTasks(sc)
 	learned, err := ix.Digest(sc, digestItems)
 	if err != nil {
 		return "", err
@@ -591,7 +643,11 @@ func buildContext(ix *index.Index, sc, name string) (string, error) {
 	if len(doing) > 0 {
 		b.WriteString("\n### Where the user left off\n")
 		for _, t := range doing {
-			fmt.Fprintf(&b, "- %s (%s, id %s)\n", clip(t.Content), t.Source, t.ID)
+			fmt.Fprintf(&b, "- %s (%s, id %s)", clip(t.Content), t.Source, t.ID)
+			if days, ok := stale[t.ID]; ok {
+				fmt.Fprintf(&b, " - untouched %d days: if it is finished, memory_done; if not, rewrite it with where it stands", int(days))
+			}
+			b.WriteString("\n")
 		}
 	}
 	if len(learned) > 0 {
