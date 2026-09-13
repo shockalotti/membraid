@@ -4,6 +4,7 @@ import (
 	"os"
 	"sort"
 	"strings"
+	"time"
 )
 
 // ProjectInfo is one project as the widget's Projects tab shows it: what is
@@ -103,33 +104,41 @@ type Insights struct {
 	RecentlyUsed   []Hit          `json:"recently_used"`
 }
 
-// Insights covers the last days days, today included. Writes count every
-// statement made in the window, including ones since replaced: they show which
-// agents are writing at all, which is how a harness whose setup broke shows up.
-func (ix *Index) Insights(days int) (*Insights, error) {
+// Insights covers the last days days, today included, as days in loc: a person
+// reads "Monday" in their own time zone, while timestamps are stored in UTC.
+// Writes count every statement made in the window, including ones since
+// replaced: they show which agents are writing at all, which is how a harness
+// whose setup broke shows up.
+func (ix *Index) Insights(days int, loc *time.Location) (*Insights, error) {
 	if days <= 0 {
 		days = 7
 	}
-	today := ix.now().UTC()
-	from := today.AddDate(0, 0, -(days - 1)).Format("2006-01-02")
+	if loc == nil {
+		loc = time.Local
+	}
+	now := ix.now().In(loc)
+	today := time.Date(now.Year(), now.Month(), now.Day(), 0, 0, 0, 0, loc)
+	start := today.AddDate(0, 0, -(days - 1))
 	in := &Insights{Days: days, WritesBySource: map[string]int{}, RecentlyUsed: []Hit{}}
 
 	counts := map[string]int{}
-	rows, err := ix.db.Query(`
-		SELECT substr(valid_from, 1, 10) AS day, source, COUNT(*) FROM memories
-		 WHERE substr(valid_from, 1, 10) >= ? GROUP BY day, source`, from)
+	rows, err := ix.db.Query(`SELECT valid_from, source FROM memories WHERE valid_from >= ?`,
+		start.UTC().Format(time.RFC3339Nano))
 	if err != nil {
 		return nil, err
 	}
 	for rows.Next() {
-		var day, source string
-		var n int
-		if err := rows.Scan(&day, &source, &n); err != nil {
+		var at, source string
+		if err := rows.Scan(&at, &source); err != nil {
 			rows.Close()
 			return nil, err
 		}
-		counts[day] += n
-		in.WritesBySource[source] += n
+		t, err := time.Parse(time.RFC3339Nano, at)
+		if err != nil || t.In(loc).Before(start) {
+			continue
+		}
+		counts[t.In(loc).Format("2006-01-02")]++
+		in.WritesBySource[source]++
 	}
 	rows.Close()
 	if err := rows.Err(); err != nil {

@@ -2,7 +2,7 @@
   "schemaVersion": 1,
   "id": "shockalotti.membraid",
   "name": "Membraid",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "author": "shockalotti",
   "license": "MIT",
   "description": "Shared agent memory: where you left off, and what your agents learned.",
@@ -11,7 +11,7 @@
   "entryPoints": { "barWidget": "Panel.qml" },
   "barWidget": {
     "displayName": "Membraid",
-    "description": "One brain across every harness. Click for where you left off and what your agents have been learning.",
+    "description": "One brain across every harness. Click for where you left off, your memories and projects, how memory is being used, and settings.",
     "category": "AI",
     "aliases": ["membraid", "memory"],
     "allowMultiple": false,

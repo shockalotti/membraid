@@ -24,7 +24,7 @@ membraid is one brain behind all of them.
 - **Every machine, via your own git remote.** The vault is a git repo. membraid
   pushes after writes and pulls when a session starts. Each machine appends to
   its own log file, so machines never conflict over memory.
-- **A bar widget for Omarchy**: open tasks, what your agents learned, sync status.
+- **A bar widget for Omarchy**: where you left off, your memories and projects, how memory is being used, and settings, including setting up a harness.
 
 ## Supported harnesses
 

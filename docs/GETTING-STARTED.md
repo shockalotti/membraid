@@ -249,16 +249,31 @@ Pick *Omarchy bar widget* in `membraid install`. It goes just left of the power
 button, unless you have already placed it somewhere else.
 
 A brain icon in the top right, lit when a task is open or a sync failed. Click
-it for:
+it for five tabs (`h` / `l` switch between them, `/` searches, `r` refreshes):
 
-- **Where you left off** - open tasks. Click one to mark it done.
-- **What your agents learned** - recent memory, tagged with the harness that
-  wrote it.
-- **Sync** - when this machine last synced, *Sync now*, and a toggle for
-  auto-sync.
+- **Overview** - sync and search status, anything worth a look (a failed sync,
+  memories not yet embedded, stale tasks, a project whose folder is gone, a new
+  release), and where you left off: click a task to mark it done.
+- **Memories** - search (by meaning when embeddings are on) or browse by
+  project and kind. *Remember something* adds your own memory, tagged as
+  written by `user`. Each memory can be *corrected*, which writes the right
+  statement and retires the old one into history, or *forgotten*, and opens
+  its distilled note when there is one.
+- **Projects** - every project membraid knows: memories, open tasks, last write
+  and which agents wrote there, and its folder on this machine. Empty projects
+  can be forgotten in one click.
+- **Insights** - writes per day and per agent over the last week, and how much
+  memory agents actually retrieve. An agent that never appears here is one whose
+  setup may be broken.
+- **Settings** - auto-sync and its timings, the decay half-life, search by
+  meaning, sync / embed / sweep / distill now, every harness and whether
+  membraid is set up in it (with *Set up*, which opens a terminal running
+  `membraid install`), and the version with *Update*.
 
-It reads `membraid status --json` and acts only by running `membraid`
-commands. If the panel and the CLI ever disagree, the CLI is right.
+It reads `membraid ... --json` commands (`status`, `memories`, `projects`,
+`insights`, `config`, `install --list`, `update --check`) and acts only by
+running `membraid` commands, so everything it does can be done from a terminal.
+If the panel and the CLI ever disagree, the CLI is right.
 
 ## How agents use it
 
@@ -332,7 +347,7 @@ load it only when memory comes up, so it costs nothing otherwise. Source:
 `assets/skill/SKILL.md`.
 
 What none of this can do is decide *what is worth remembering* for the model. If
-*What your agents learned* in the widget stays empty after a week, the habits
+an agent never shows up in the widget's *Insights* after a week, the habits
 need work, not the plumbing.
 
 ## The tools an agent sees

@@ -78,7 +78,7 @@ func TestInsights(t *testing.T) {
 	}
 	ix.Touch(ids)
 
-	in, err := ix.Insights(7)
+	in, err := ix.Insights(7, time.UTC)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -92,6 +92,13 @@ func TestInsights(t *testing.T) {
 		t.Errorf("usage wrong: %+v", in)
 	}
 	_ = w
+
+	// Days are the reader's days: 09:00 UTC on 10 March is already 11 March at
+	// UTC+15, so today's two writes land on the later date there.
+	local, _ := ix.Insights(7, time.FixedZone("UTC+15", 15*3600))
+	if last := local.WritesByDay[6]; last.Day != "2026-03-11" || last.Count != 2 || local.WritesByDay[5].Count != 1 {
+		t.Errorf("want each write on its local date, got %+v", local.WritesByDay)
+	}
 }
 
 func TestBrowseFiltersAndDoesNotTouch(t *testing.T) {
@@ -108,7 +115,7 @@ func TestBrowseFiltersAndDoesNotTouch(t *testing.T) {
 	if len(only) != 1 || only[0].Content != "a" {
 		t.Errorf("filters wrong: %+v", only)
 	}
-	in, _ := ix.Insights(7)
+	in, _ := ix.Insights(7, time.UTC)
 	if in.NeverUsed != 3 {
 		t.Error("browsing must not count as retrieval")
 	}

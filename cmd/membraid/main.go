@@ -349,7 +349,7 @@ func run(args []string) error {
 
 	case "insights":
 		return withIndex(v, cfg, func(ix *index.Index) error {
-			in, err := ix.Insights(*days)
+			in, err := ix.Insights(*days, time.Local)
 			if err != nil {
 				return err
 			}
