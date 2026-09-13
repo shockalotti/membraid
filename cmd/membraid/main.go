@@ -416,7 +416,7 @@ func run(args []string) error {
 			// Copilot CLI leaves out the instructions of MCP servers it has not
 			// allowlisted, so its hook carries them along with the digest.
 			return json.NewEncoder(os.Stdout).Encode(map[string]any{
-				"additionalContext": strings.TrimSpace(serverInstructions + "\n\n" + text),
+				"additionalContext": strings.TrimSpace(serverInstructions(cfg.EmbeddingsOn()) + "\n\n" + text),
 			})
 		}
 		if *format == "cursor" {

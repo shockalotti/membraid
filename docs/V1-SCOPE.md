@@ -161,6 +161,14 @@ does not exist on day one, and each is cheap to add when it does.
 | Embedding speed on low-end machines | - | Deferred by choice. The embedding bake-off picks a default model on a fast laptop first; the weakest supported machine (e.g. a 4-core minipc) is tested before that model is recommended to anyone |
 | Cloud embedding APIs (Gemini, Voyage, Mistral, Jina and similar) | - | Deferred by choice: memory stays on the user's own machines. If ever added, strictly opt-in, with a clear warning that memory content leaves the machine |
 
+### Loose ends to pick up later
+
+| What | State |
+|---|---|
+| Codex, live session | Installed and loads the skill and MCP server; never run against a model. Needs an OpenAI login or a local model: Codex no longer accepts the chat completions API that Gemini's compatible endpoint offers |
+| Cursor CLI, live session | Installed; `cursor-agent mcp list-tools` shows the tools. Needs a Cursor login, and whether Cursor shows hook context to the model is decided on its servers |
+| Embedding speed on the minipc | Measured on wynneclaw1 (4-core, Ollama EmbeddingGemma q4_0): 8.6 s to embed 9 memories cold, about 0.16 s per search. Write it up in SEARCH-EVALUATION.md with a larger store |
+
 **The wire-log line format is not deferred and not provisional.** It is the one
 artifact nothing can rebuild, so its format is locked now (§5.3, writer-side
 rules). Everything above can change freely; that cannot.

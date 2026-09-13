@@ -271,3 +271,26 @@ func TestContextCopilotFormat(t *testing.T) {
 		t.Errorf("cursor wants {\"additional_context\": digest}, got %q", out)
 	}
 }
+
+// Agents are told how search matches on this machine: meaning when embeddings
+// are on, words when they are off. Telling them the wrong one makes them
+// search badly.
+func TestSearchGuidanceMatchesTheMachine(t *testing.T) {
+	if ins := serverInstructions(false); !strings.Contains(ins, "matches words, not meaning") || strings.Contains(ins, "{{") {
+		t.Errorf("keyword instructions wrong: %q", ins)
+	}
+	if ins := serverInstructions(true); !strings.Contains(ins, "matches meaning") || strings.Contains(ins, "not meaning") {
+		t.Errorf("semantic instructions wrong: %q", ins)
+	}
+	for _, semantic := range []bool{false, true} {
+		for _, tool := range toolDefs(semantic) {
+			if tool["name"] != "memory_search" {
+				continue
+			}
+			desc := tool["description"].(string)
+			if strings.Contains(desc, "not meaning") == semantic {
+				t.Errorf("memory_search description (semantic=%v) wrong: %q", semantic, desc)
+			}
+		}
+	}
+}

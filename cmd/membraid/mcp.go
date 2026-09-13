@@ -236,7 +236,7 @@ func (s *mcpServer) dispatch(req rpcRequest) {
 		})
 	case "notifications/initialized", "initialized":
 	case "tools/list":
-		s.reply(req.ID, map[string]any{"tools": toolDefs()})
+		s.reply(req.ID, map[string]any{"tools": toolDefs(s.emb != nil)})
 	case "tools/call":
 		s.callTool(req)
 	case "ping", "shutdown":
@@ -277,16 +277,16 @@ func (s *mcpServer) text(id json.RawMessage, body string, isError bool) {
 // digest out, never the server.
 func (s *mcpServer) instructions() string {
 	if !s.digest {
-		return serverInstructions
+		return serverInstructions(s.emb != nil)
 	}
 	if _, err := s.ix.ImportAll(); err != nil {
 		fmt.Fprintf(os.Stderr, "membraid: import: %v\n", err)
 	}
 	text, err := buildContext(s.ix, scope.Resolve(""), scope.Name(""))
 	if err != nil || strings.TrimSpace(text) == "" {
-		return serverInstructions
+		return serverInstructions(s.emb != nil)
 	}
-	return serverInstructions + "\n\n" + strings.TrimSpace(text)
+	return serverInstructions(s.emb != nil) + "\n\n" + strings.TrimSpace(text)
 }
 
 // serverInstructions is returned in the MCP initialize result, which harnesses
@@ -295,12 +295,12 @@ func (s *mcpServer) instructions() string {
 // habits, and the tool descriptions carry the mechanics.
 //
 // Kept short: it is in the prompt of every session.
-const serverInstructions = `membraid is the user's shared memory across every agent they use and every machine they work on. What you record here, their other agents will see.
+const serverInstructionsTemplate = `membraid is the user's shared memory across every agent they use and every machine they work on. What you record here, their other agents will see.
 
 Read:
 - Before asking the user something they may already have told an agent, or starting work on a project, call memory_search.
 - To check one specific fact, memory_get with its key is cheapest.
-- Search matches words, not meaning. If the results miss, search again with different words: a synonym, the tool or file name, or the key you expect.
+- {{search}}
 
 Write (memory_write) when:
 - the user states a preference or corrects how you work - kind preference, usually scope "shared"
@@ -321,7 +321,28 @@ const keyGuidance = "Give a `key` whenever the fact has a subject that can chang
 	"Use a dotted lowercase noun path, most general part first - editor.theme, " +
 	"pkg.manager, deploy.target. Omit it for one-off observations."
 
-func toolDefs() []map[string]any {
+// Search guidance differs by machine: with embeddings on, memory_search
+// matches meaning, and telling agents otherwise makes them search badly.
+const (
+	keywordSearchHint  = "Search matches words, not meaning. If the results miss, search again with different words: a synonym, the tool or file name, or the key you expect."
+	semanticSearchHint = "Search matches meaning, so describe what you need in plain words. If the results miss, rephrase, or memory_get the key you expect."
+)
+
+// serverInstructions are the instructions for a server that searches by
+// meaning (semantic) or by keywords.
+func serverInstructions(semantic bool) string {
+	hint := keywordSearchHint
+	if semantic {
+		hint = semanticSearchHint
+	}
+	return strings.Replace(serverInstructionsTemplate, "{{search}}", hint, 1)
+}
+
+func toolDefs(semantic bool) []map[string]any {
+	searchHow := "It matches words, not meaning: if the results miss, try other words, or memory_get the likely key."
+	if semantic {
+		searchHow = "It matches meaning: describe what you need; if the results miss, rephrase, or memory_get the likely key."
+	}
 	return []map[string]any{
 		{
 			"name": "memory_write",
@@ -381,7 +402,7 @@ func toolDefs() []map[string]any {
 			"annotations": map[string]any{"readOnlyHint": true},
 			"description": "Search memory before assuming you do not know something. Returns current answers " +
 				"from this project plus anything marked shared. Worth calling at the start of a task. " +
-				"It matches words, not meaning: if the results miss, try other words, or memory_get the likely key.",
+				searchHow,
 			"inputSchema": map[string]any{
 				"type":     "object",
 				"required": []string{"query"},

@@ -112,9 +112,11 @@ be closed: `memory_done` with its id.
   another agent.
 - **Before assuming a default** (package manager, test command, style), check
   for a preference.
-- **Search matches words, not meaning.** If nothing relevant comes back, try
-  again with different words: a synonym, the tool or file name, or the key you
-  expect (`memory_get`). One miss does not mean memory has nothing.
+- **How search matches depends on the machine.** With embeddings on, it
+  matches meaning, so describe what you need in plain words; otherwise it
+  matches words. The server instructions say which. Either way, if nothing
+  relevant comes back, try again: rephrase, use the tool or file name, or
+  `memory_get` the key you expect. One miss does not mean memory has nothing.
 - **Memory can be stale. The code is the ground truth.** If memory says Go 1.25
   and `go.mod` says 1.27, trust `go.mod` - then write the correction under the
   same key so the next agent is not misled.
