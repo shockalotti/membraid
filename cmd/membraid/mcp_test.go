@@ -1,12 +1,15 @@
 package main
 
 import (
+	"bufio"
 	"encoding/json"
+	"io"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 )
 
 // Drives the built binary the way a harness does: newline-delimited JSON-RPC
@@ -85,4 +88,78 @@ func toolText(t *testing.T, m map[string]any) string {
 	t.Helper()
 	c := result(t, m)["content"].([]any)
 	return c[0].(map[string]any)["text"].(string)
+}
+
+// A harness keeps one server for a whole session, and Hermes's gateway keeps
+// one for days. A memory that reaches the vault after the server started -
+// pulled by the sync timer from another machine - must show up in search
+// without restarting the session.
+func TestMCPSeesMemoriesThatArriveMidSession(t *testing.T) {
+	bin := filepath.Join(t.TempDir(), "membraid")
+	if out, err := exec.Command("go", "build", "-o", bin, ".").CombinedOutput(); err != nil {
+		t.Fatalf("build: %v\n%s", err, out)
+	}
+	here, there := filepath.Join(t.TempDir(), "here"), filepath.Join(t.TempDir(), "there")
+	hereCfg, thereCfg := t.TempDir(), t.TempDir()
+	run := func(cfgDir string, args ...string) {
+		t.Helper()
+		c := exec.Command(bin, args...)
+		c.Env = append(os.Environ(), "MEMBRAID_CONFIG_DIR="+cfgDir)
+		if out, err := c.CombinedOutput(); err != nil {
+			t.Fatalf("%v: %v\n%s", args, err, out)
+		}
+	}
+	run(hereCfg, "init", "--vault", here)
+	run(thereCfg, "init", "--vault", there)
+	run(thereCfg, "config", "set", "host", "otherbox")
+
+	srv := exec.Command(bin, "mcp", "--vault", here, "--source", "long-lived")
+	srv.Env = append(os.Environ(), "MEMBRAID_CONFIG_DIR="+hereCfg)
+	stdin, _ := srv.StdinPipe()
+	stdout, _ := srv.StdoutPipe()
+	if err := srv.Start(); err != nil {
+		t.Fatal(err)
+	}
+	defer func() { stdin.Close(); srv.Wait() }()
+	lines := bufio.NewScanner(stdout)
+	call := func(req string) map[string]any {
+		t.Helper()
+		io.WriteString(stdin, req+"\n")
+		got := make(chan map[string]any, 1)
+		go func() {
+			var m map[string]any
+			if lines.Scan() {
+				json.Unmarshal(lines.Bytes(), &m)
+			}
+			got <- m
+		}()
+		select {
+		case m := <-got:
+			return m
+		case <-time.After(15 * time.Second):
+			t.Fatal("no response from the server")
+			return nil
+		}
+	}
+	search := `{"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":"memory_search","arguments":{"query":"fly","scope":"*"}}}`
+
+	call(`{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2025-06-18"}}`)
+	if txt := toolText(t, call(search)); strings.Contains(txt, "fly.io") {
+		t.Fatalf("nothing should be known yet: %q", txt)
+	}
+
+	// Another machine writes; a pull lands its log file in this vault.
+	run(thereCfg, "write", "--vault", there, "--scope", "shared", "--kind", "project_param", "--key", "deploy.target", "deploys to fly.io")
+	logs, _ := filepath.Glob(filepath.Join(there, ".hot", "writes-*-otherbox.jsonl"))
+	if len(logs) != 1 {
+		t.Fatalf("want one log file from the other machine, got %v", logs)
+	}
+	b, _ := os.ReadFile(logs[0])
+	if err := os.WriteFile(filepath.Join(here, ".hot", filepath.Base(logs[0])), b, 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	if txt := toolText(t, call(search)); !strings.Contains(txt, "fly.io") {
+		t.Errorf("a memory pulled mid-session must be searchable without a restart, got %q", txt)
+	}
 }

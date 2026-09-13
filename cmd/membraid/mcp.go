@@ -48,9 +48,10 @@ type mcpServer struct {
 	source string
 	out    *json.Encoder
 
-	mu      sync.Mutex
-	timer   *time.Timer
-	pending bool
+	mu       sync.Mutex
+	timer    *time.Timer
+	pending  bool
+	lastPull time.Time
 }
 
 func runMCP(v *vault.Vault, cfg config.Config, source string) error {
@@ -67,6 +68,7 @@ func runMCP(v *vault.Vault, cfg config.Config, source string) error {
 	// likely just changed machines. In the background, so the harness is not
 	// kept waiting on the network before it can list tools.
 	if cfg.AutoSync {
+		s.lastPull = time.Now()
 		go s.syncNow("session start")
 	}
 
@@ -125,6 +127,41 @@ func (s *mcpServer) flush() {
 	s.mu.Unlock()
 	if wasPending {
 		s.syncNow("session end")
+	}
+}
+
+// refresh brings a long-running server up to date before it answers.
+//
+// A harness keeps one server for a whole session, and Hermes's gateway keeps
+// one for days. Importing only at startup meant memories that arrived since -
+// pulled by the sync timer, or written by another session on this machine -
+// were invisible to search until this server happened to sync for itself.
+//
+// The import is local and incremental, so it runs before every call. If the
+// last successful pull, by anyone on this machine, is older than
+// pull_interval_min, a pull also starts in the background: this answer uses
+// what is already on disk rather than waiting on the network, and a server
+// stays current even where no timer runs. At most one pull is started per
+// interval, so an offline machine is not hammered with fetches.
+func (s *mcpServer) refresh() {
+	if _, err := s.ix.ImportAll(); err != nil {
+		fmt.Fprintf(os.Stderr, "membraid: import: %v\n", err)
+	}
+	if !s.cfg.AutoSync {
+		return
+	}
+	interval := time.Duration(s.cfg.PullIntervalMin) * time.Minute
+	if age, ok := config.LoadState().SinceLastSuccess(time.Now()); ok && age < interval {
+		return
+	}
+	s.mu.Lock()
+	due := time.Since(s.lastPull) >= interval
+	if due {
+		s.lastPull = time.Now()
+	}
+	s.mu.Unlock()
+	if due {
+		go s.syncNow("pull interval elapsed")
 	}
 }
 
@@ -322,6 +359,7 @@ func (s *mcpServer) callTool(req rpcRequest) {
 	}
 	_ = json.Unmarshal(p.Arguments, &a)
 	sc := scope.Resolve(a.Scope)
+	s.refresh()
 
 	switch p.Name {
 	case "memory_write":
