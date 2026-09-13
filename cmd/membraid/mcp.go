@@ -10,9 +10,11 @@ import (
 	"os"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/shockalotti/membraid/internal/config"
+	"github.com/shockalotti/membraid/internal/embed"
 	"github.com/shockalotti/membraid/internal/index"
 	"github.com/shockalotti/membraid/internal/scope"
 	"github.com/shockalotti/membraid/internal/vault"
@@ -52,6 +54,11 @@ type mcpServer struct {
 	timer    *time.Timer
 	pending  bool
 	lastPull time.Time
+
+	// emb is nil when embeddings are off. embedding is set while a background
+	// pass runs, so writes arriving during one do not start another.
+	emb       embed.Embedder
+	embedding atomic.Bool
 }
 
 func runMCP(v *vault.Vault, cfg config.Config, source string) error {
@@ -62,6 +69,15 @@ func runMCP(v *vault.Vault, cfg config.Config, source string) error {
 	defer closeIx()
 
 	s := &mcpServer{v: v, cfg: cfg, ix: ix, source: source, out: json.NewEncoder(os.Stdout)}
+	if e, err := newEmbedder(cfg); err != nil {
+		fmt.Fprintln(os.Stderr, "membraid: embeddings unavailable, searching by keywords:", err)
+	} else if e != nil {
+		s.emb = &lockedEmbedder{e: e}
+		defer s.emb.Close()
+		// A session searches many times: keep vector bits in memory.
+		ix.EnableVectorCache()
+		go s.embedBacklog("session start")
+	}
 	fmt.Fprintf(os.Stderr, "membraid: mcp ready (vault %s, source %s, auto_sync %v)\n", v.Root(), source, cfg.AutoSync)
 
 	// Pull when a session starts: starting an agent is the moment you most
@@ -144,8 +160,10 @@ func (s *mcpServer) flush() {
 // stays current even where no timer runs. At most one pull is started per
 // interval, so an offline machine is not hammered with fetches.
 func (s *mcpServer) refresh() {
-	if _, err := s.ix.ImportAll(); err != nil {
+	if n, err := s.ix.ImportAll(); err != nil {
 		fmt.Fprintf(os.Stderr, "membraid: import: %v\n", err)
+	} else if n > 0 {
+		go s.embedBacklog("imported")
 	}
 	if !s.cfg.AutoSync {
 		return
@@ -162,6 +180,25 @@ func (s *mcpServer) refresh() {
 	s.mu.Unlock()
 	if due {
 		go s.syncNow("pull interval elapsed")
+	}
+}
+
+// embedBacklog embeds memories that have no vector yet, in the background, so
+// search by meaning covers new writes and imports. One pass at a time.
+func (s *mcpServer) embedBacklog(reason string) {
+	if s.emb == nil || !s.embedding.CompareAndSwap(false, true) {
+		return
+	}
+	defer s.embedding.Store(false)
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Minute)
+	defer cancel()
+	n, err := embedPending(ctx, s.emb, s.ix, 0)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "membraid: embedding (%s) stopped after %d: %v\n", reason, n, err)
+		return
+	}
+	if n > 0 {
+		fmt.Fprintf(os.Stderr, "membraid: embedded %d memories (%s)\n", n, reason)
 	}
 }
 
@@ -379,6 +416,7 @@ func (s *mcpServer) callTool(req rpcRequest) {
 		}
 		s.text(req.ID, msg, false)
 		s.scheduleSync()
+		go s.embedBacklog("after write")
 
 	case "memory_done":
 		if a.Key == "" && a.ID == "" {
@@ -419,7 +457,7 @@ func (s *mcpServer) callTool(req rpcRequest) {
 		s.scheduleSync()
 
 	case "memory_search":
-		hits, err := s.ix.Search(a.Query, sc, a.Limit)
+		hits, _, err := searchMemories(context.Background(), s.emb, s.ix, a.Query, sc, a.Limit)
 		if err != nil {
 			s.text(req.ID, err.Error(), true)
 			return

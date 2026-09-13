@@ -7,7 +7,7 @@ the design reference.
 
 ## Prerequisites
 
-- **Go 1.26+.** SQLite is pure Go (modernc.org/sqlite): no CGO, no C toolchain.
+- **Go 1.27+.** SQLite is pure Go (modernc.org/sqlite): no CGO, no C toolchain.
 - **git**, for the sync tests.
 
 ## Layout
@@ -17,6 +17,8 @@ the design reference.
 - `internal/wirelog/` - the append-only log, the one artifact nothing can rebuild
 - `internal/index/` - the SQLite index: supersession, search, tasks, scopes
 - `internal/vaultsync/` - git sync between machines
+- `internal/embed/` - optional local embedding models (Ollama, or built in via
+  hugot; `-tags nobuiltin` leaves the built-in one out)
 - `internal/install/` - per-harness setup (Claude Code, OpenCode, Grok, Hermes,
   Omarchy)
 - `internal/vault/`, `internal/scope/`, `internal/config/` - the vault layout,
@@ -32,7 +34,11 @@ go vet ./...
 gofmt -l cmd internal assets        # must print nothing
 go test ./...
 GOOS=windows go build -o /dev/null ./cmd/membraid   # Windows must keep compiling
+go build -tags nobuiltin ./cmd/membraid             # without the built-in embedding model
 ```
+
+The built-in embedding model's test downloads about 90 MB, so it is skipped
+unless `MEMBRAID_TEST_BUILTIN=1` is set. Everything else runs offline.
 
 Tests must never touch a real vault, real harness configs, or real sync state.
 The end-to-end tests build the binary into a temp dir and point it at temp

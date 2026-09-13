@@ -109,9 +109,9 @@ next starts; the goal is the **usable** line below, not the bottom of the table.
 The original plan held these back until the store was big enough to hurt. The
 decision now is to build them rather than wait. Agreed sequence:
 
-1. **8a** - fix keyword search: stopwords dropped, identifiers kept whole, OR, bm25
-2. **8b** - retrieval tracking, decay in ranking, digest scoring, and guidance for agents to rephrase a search that misses
-3. **Hybrid search** (§16 M11) - pure Go vector search, embeddings optional ([SEARCH-EVALUATION.md](SEARCH-EVALUATION.md))
+1. **8a** - fix keyword search: stopwords dropped, identifiers kept whole, OR, bm25. **Done**
+2. **8b** - retrieval tracking, decay in ranking, digest scoring (`membraid context --explain`), cross-machine retrieval checkpoints, and guidance for agents to rephrase a search that misses. **Done**
+3. **Hybrid search** (§16 M11) - pure Go vector search, embeddings optional ([SEARCH-EVALUATION.md](SEARCH-EVALUATION.md)). **done** - vector store, local embedders (Ollama EmbeddingGemma or built-in all-MiniLM), `membraid embed`, vector-only search with keyword fallback, installer option 
 4. **10** - sweep
 5. **9** - distillation, kept for its readable per-subject markdown files
 

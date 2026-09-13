@@ -13,10 +13,12 @@ import (
 	"fmt"
 	"io"
 	"io/fs"
+	"net/http"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"strings"
+	"time"
 
 	"gopkg.in/yaml.v3"
 
@@ -41,6 +43,8 @@ type Env struct {
 	Out      io.Writer
 	Run      func(stdin, name string, args ...string) (string, error)
 	LookPath func(string) (string, error)
+	// OllamaUp reports whether a local Ollama server answers. Nil means no.
+	OllamaUp func() bool
 }
 
 func DefaultEnv(bin string, out io.Writer) (*Env, error) {
@@ -48,7 +52,19 @@ func DefaultEnv(bin string, out io.Writer) (*Env, error) {
 	if err != nil {
 		return nil, err
 	}
-	return &Env{Home: home, Bin: bin, Out: out, Run: runCommand, LookPath: exec.LookPath}, nil
+	return &Env{Home: home, Bin: bin, Out: out, Run: runCommand, LookPath: exec.LookPath, OllamaUp: ollamaUp}, nil
+}
+
+// ollamaUp probes the local Ollama API with a short timeout, so install never
+// waits on a server that is not there.
+func ollamaUp() bool {
+	c := &http.Client{Timeout: 1500 * time.Millisecond}
+	resp, err := c.Get("http://localhost:11434/api/tags")
+	if err != nil {
+		return false
+	}
+	resp.Body.Close()
+	return resp.StatusCode == http.StatusOK
 }
 
 func runCommand(stdin, name string, args ...string) (string, error) {

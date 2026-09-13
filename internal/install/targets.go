@@ -10,7 +10,7 @@ import (
 
 // Targets is every harness install knows, in the order it offers them.
 func Targets() []Target {
-	return []Target{claudeCode(), openCode(), grok(), hermes(), omarchyWidget()}
+	return []Target{claudeCode(), openCode(), grok(), hermes(), omarchyWidget(), embeddings()}
 }
 
 func claudeCode() Target {
@@ -315,4 +315,55 @@ func omarchyWidget() Target {
 func lastLine(s string) string {
 	lines := strings.Split(strings.TrimSpace(s), "\n")
 	return strings.TrimSpace(lines[len(lines)-1])
+}
+
+// embeddingModel is the Ollama model semantic search uses: the most accurate
+// in the search evaluation, and the smallest EmbeddingGemma variant.
+const embeddingModel = "embeddinggemma:300m-qat-q4_0"
+
+// embeddings turns on optional semantic search. It is never preselected: it is
+// the one target that downloads a model. With Ollama running it uses
+// EmbeddingGemma through Ollama; otherwise the model built into membraid.
+func embeddings() Target {
+	return Target{
+		ID: "embeddings", Name: "Semantic search (embeddings)",
+		Detect: func(*Env) bool { return false },
+		Notes: []string{
+			"Embeddings are computed on this machine and stored only in its local index, never in the synced vault. Nothing is sent to any cloud service.",
+		},
+		Steps: func(e *Env) []Step {
+			embed := func(desc string) Step {
+				return Step{Desc: desc, Apply: func(e *Env) error {
+					if out, err := e.Run("", e.Bin, "embed"); err != nil {
+						return fmt.Errorf("membraid embed: %v: %s", err, lastLine(out))
+					}
+					return nil
+				}}
+			}
+			set := func(kind string) Step {
+				return Step{Desc: "set embeddings=" + kind, Apply: func(e *Env) error {
+					if out, err := e.Run("", e.Bin, "config", "set", "embeddings", kind); err != nil {
+						return fmt.Errorf("membraid config set embeddings %s: %v: %s", kind, err, lastLine(out))
+					}
+					return nil
+				}}
+			}
+			if e.OllamaUp != nil && e.OllamaUp() {
+				return []Step{
+					{Desc: "pull " + embeddingModel + " (239 MB) via ollama pull", Apply: func(e *Env) error {
+						if out, err := e.Run("", "ollama", "pull", embeddingModel); err != nil {
+							return fmt.Errorf("ollama pull %s: %v: %s", embeddingModel, err, lastLine(out))
+						}
+						return nil
+					}},
+					set("ollama"),
+					embed("embed existing memories"),
+				}
+			}
+			return []Step{
+				set("builtin"),
+				embed("embed existing memories (downloads the built-in model, about 90 MB)"),
+			}
+		},
+	}
 }

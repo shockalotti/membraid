@@ -313,10 +313,12 @@ when the agent calls a tool: `memory_search` returns up to 10 hits, one line
 each with kind, key, content, scope, the agent that wrote it, and its id.
 Whether it searches is the agent's call, guided by the instructions.
 
-**Search is keyword full-text, not semantic**: SQLite FTS5 with porter stemming,
-ranked by BM25. It finds "deploy target" in a memory that says deploy target;
-it will not connect "where does this app run" to "deploys to Railway". Reusing
-keys is what keeps related memories findable.
+**Search is keyword full-text by default**: SQLite FTS5 with porter stemming,
+common words dropped, ranked by BM25. It finds "deploy target" in a memory that
+says deploy target; it will not connect "where does this app run" to "deploys
+to Railway". Reusing keys is what keeps related memories findable. **With
+semantic search turned on, search goes by meaning instead** (see below), and
+falls back to keywords whenever the embedding model is unavailable.
 
 **How long a memory takes to reach another machine.** A write is pushed about
 60 seconds after writes go quiet. The other machine pulls when a session starts
@@ -325,6 +327,40 @@ inside any running MCP server once that interval has passed. The digest is built
 from what is already on disk while the session-start pull runs in the
 background, so a memory written elsewhere a minute ago can miss a new session's
 digest and still turn up in its searches.
+
+## Semantic search (optional)
+
+Keyword search finds memories that use the words you search with. Semantic
+search finds them by meaning. On the search evaluation set, where half the
+questions share no words with their answer, the right memory landed in the top
+five for 47% of questions with keyword search, 96% with EmbeddingGemma, and 91%
+with the model built into membraid. The full measurements and why this design
+won are in [SEARCH-EVALUATION.md](SEARCH-EVALUATION.md).
+
+**It stays on your machine.** Each machine computes its own embeddings with a
+local model and keeps them in its local index. They are never written to the
+synced vault, and nothing is sent to any cloud service.
+
+**Turn it on** by picking *Semantic search* in `membraid install`, or by hand:
+
+```sh
+membraid config set embeddings ollama    # EmbeddingGemma through Ollama (most accurate)
+membraid config set embeddings builtin   # or the model built into membraid, no Ollama needed
+membraid embed                           # embed the memories you already have
+```
+
+- **ollama** uses `embeddinggemma:300m-qat-q4_0` (239 MB; `ollama pull` it
+  first) unless `embed_model` names another. An idle Ollama server uses about
+  60 MB; the model loads when membraid asks for it and unloads after 5 idle
+  minutes.
+- **builtin** uses all-MiniLM-L6-v2, downloaded once (about 90 MB) to your user
+  cache directory under `membraid/models`. Slightly less accurate, and nothing
+  else to install.
+
+New memories are embedded in the background by running MCP servers and by the
+sync timer; `membraid status` shows how many are covered. If Ollama is not
+running when a search happens, that search uses keywords rather than failing.
+Changing model re-embeds on the next `membraid embed`.
 
 ## Use it from anything else
 

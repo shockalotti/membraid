@@ -192,3 +192,19 @@ func TestMissingVectorsAndCoverage(t *testing.T) {
 		t.Errorf("a forgotten memory needs no vector, got %+v", pending)
 	}
 }
+
+func TestDropOtherVectors(t *testing.T) {
+	ix := newIndex(t)
+	w, _ := ix.Write(Memory{Kind: KindInsight, Content: "one fact", Source: "x"})
+	ix.PutVector(w.ID, "old:model", []float32{1, 0})
+	ix.PutVector(w.ID, testModel, []float32{0, 1})
+	if n, err := ix.DropOtherVectors(testModel); err != nil || n != 1 {
+		t.Fatalf("want 1 old vector removed, got %d %v", n, err)
+	}
+	if have, _, _ := ix.VectorCoverage(testModel); have != 1 {
+		t.Error("the current model's vector must survive")
+	}
+	if have, _, _ := ix.VectorCoverage("old:model"); have != 0 {
+		t.Error("the old model's vector must be gone")
+	}
+}

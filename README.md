@@ -39,7 +39,7 @@ membraid is one brain behind all of them.
 
 ## Install
 
-Needs Go 1.26 or newer (prebuilt binaries are not published yet).
+Needs Go 1.27 or newer (prebuilt binaries are not published yet).
 
 ```sh
 go install github.com/shockalotti/membraid/cmd/membraid@latest
@@ -80,8 +80,9 @@ visible everywhere.
 Early. Used daily by its author across two Linux machines and four harnesses.
 
 - Linux is tested. Windows builds but is untested.
-- Search is keyword full-text (SQLite FTS5), not semantic.
-- The quality layer from the spec (decay, distillation, sweep) is in progress.
+- Search is keyword full-text by default. Semantic search is optional and
+  local: EmbeddingGemma through Ollama, or a model built into membraid.
+- Decay and a scored session digest are in; sweep and distillation are next.
 
 ## Docs
 

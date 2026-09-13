@@ -31,7 +31,16 @@ type Config struct {
 	// HalflifeDays is how many days without being retrieved it takes for a
 	// memory's search rank to halve (SPEC 7.2). Retrieval resets the clock.
 	HalflifeDays int `json:"halflife_days"`
+	// Embeddings turns on search by meaning: "off" (the default, also when
+	// empty), "ollama" or "builtin". Vectors stay in this machine's index.
+	Embeddings string `json:"embeddings,omitempty"`
+	// EmbedModel is the Ollama model tag; empty means the default. The builtin
+	// provider has one model and ignores it.
+	EmbedModel string `json:"embed_model,omitempty"`
 }
+
+// EmbeddingsOn reports whether search by meaning is configured.
+func (c Config) EmbeddingsOn() bool { return c.Embeddings != "" && c.Embeddings != "off" }
 
 func Defaults() Config {
 	return Config{AutoSync: true, PushDelaySec: 60, PullIntervalMin: 15, HalflifeDays: 30}
@@ -119,8 +128,17 @@ func (c *Config) Set(key, value string) error {
 		}
 	case "host":
 		c.Host = strings.TrimSpace(value)
+	case "embeddings":
+		switch v := strings.ToLower(strings.TrimSpace(value)); v {
+		case "off", "ollama", "builtin":
+			c.Embeddings = v
+		default:
+			return fmt.Errorf("embeddings takes off, ollama or builtin, got %q", value)
+		}
+	case "embed_model":
+		c.EmbedModel = strings.TrimSpace(value)
 	default:
-		return fmt.Errorf("unknown setting %q (auto_sync, push_delay_sec, pull_interval_min, halflife_days, host)", key)
+		return fmt.Errorf("unknown setting %q (auto_sync, push_delay_sec, pull_interval_min, halflife_days, host, embeddings, embed_model)", key)
 	}
 	c.clamp()
 	return nil

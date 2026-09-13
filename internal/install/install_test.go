@@ -294,3 +294,36 @@ func toStrings(v any) []string {
 	}
 	return out
 }
+
+// Embeddings are optional: never preselected, and they use Ollama only when a
+// server is actually running.
+func TestEmbeddingsTarget(t *testing.T) {
+	e, r := newEnv(t)
+	tg := target("embeddings")
+	if tg.Detect(e) {
+		t.Error("embeddings must never be preselected")
+	}
+
+	e.OllamaUp = func() bool { return true }
+	apply(t, e, "embeddings")
+	want := "|ollama pull embeddinggemma:300m-qat-q4_0\n|" + bin + " config set embeddings ollama\n|" + bin + " embed"
+	if got := strings.Join(r.calls, "\n"); got != want {
+		t.Errorf("with Ollama running:\n%s\nwant:\n%s", got, want)
+	}
+
+	r.calls = nil
+	e.OllamaUp = func() bool { return false }
+	apply(t, e, "embeddings")
+	want = "|" + bin + " config set embeddings builtin\n|" + bin + " embed"
+	if got := strings.Join(r.calls, "\n"); got != want {
+		t.Errorf("without Ollama:\n%s\nwant:\n%s", got, want)
+	}
+
+	r.calls = nil
+	e.DryRun = true
+	e.OllamaUp = func() bool { return true }
+	apply(t, e, "embeddings")
+	if len(r.calls) != 0 {
+		t.Errorf("dry run must run nothing, ran %v", r.calls)
+	}
+}

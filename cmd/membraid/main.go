@@ -37,6 +37,7 @@ Usage:
   membraid status [--json]               where you left off + what agents learned
   membraid context [--format claude]     the short digest an agent starts a session with
   membraid context --explain             the digest, and why each memory was chosen
+  membraid embed                         make every memory searchable by meaning (embeddings on)
   membraid sync [--json]                 commit, pull, push, import - once
   membraid config [set KEY VALUE]        this machine's settings
   membraid timer install|remove|status   periodic sync via systemd (Linux)
@@ -58,6 +59,8 @@ Sync settings (membraid config set ...):
   push_delay_sec     60     wait for writes to go quiet before pushing
   pull_interval_min  15     how stale a scheduled pull may get
   halflife_days      30     days unused before a memory's search rank halves
+  embeddings         off    search by meaning: off, ollama or builtin (local only)
+  embed_model        (default)  Ollama model; default embeddinggemma:300m-qat-q4_0
   host               (hostname)  names this machine's log file
 
 The vault is plain text in a git repo you own: every memory is a line in .hot/writes-*.jsonl.
@@ -206,7 +209,14 @@ func run(args []string) error {
 		return withIndex(v, cfg, func(ix *index.Index) error {
 			sc := scope.Resolve(*scopeFlag)
 			warnIfMoved(ix, sc)
-			hits, err := ix.Search(strings.Join(fs.Args(), " "), sc, *limit)
+			e, err := newEmbedder(cfg)
+			if err != nil {
+				fmt.Fprintln(os.Stderr, "membraid: embeddings:", err)
+			}
+			if e != nil {
+				defer e.Close()
+			}
+			hits, _, err := searchMemories(context.Background(), e, ix, strings.Join(fs.Args(), " "), sc, *limit)
 			if err != nil {
 				return err
 			}
@@ -347,10 +357,17 @@ func run(args []string) error {
 				return json.NewEncoder(os.Stdout).Encode(map[string]any{
 					"scope": sc, "vault": v.Root(), "host": wirelog.SafeHost(cfg.HostName()),
 					"stats": st, "doing": doing, "learned": learned, "sync": syncInfo,
+					"search": searchStatus(cfg, ix),
 				})
 			}
 			fmt.Printf("scope %s  -  %d current, %d total, %d projects\n", sc, st.Current, st.Total, st.Scopes)
 			fmt.Println("sync  " + describeSync(cfg, ss))
+			switch si := searchStatus(cfg, ix); si["mode"] {
+			case "vector":
+				fmt.Printf("search  by meaning (%s): %d of %d memories embedded\n", si["model"], si["embedded"], si["current"])
+			default:
+				fmt.Println("search  by keywords (for search by meaning: membraid install, or membraid config set embeddings)")
+			}
 			if len(doing) > 0 {
 				fmt.Println("\nwhere you left off")
 				for _, h := range doing {
@@ -430,6 +447,40 @@ func run(args []string) error {
 			}
 			if !*quiet {
 				fmt.Println(describeResult(res, imported))
+			}
+			embedAfterSync(cfg, ix, *quiet)
+			return nil
+		})
+
+	case "embed":
+		e, err := newEmbedder(cfg)
+		if err != nil {
+			return err
+		}
+		if e == nil {
+			return fmt.Errorf("embeddings are off; turn them on with: membraid config set embeddings ollama (or builtin)")
+		}
+		defer e.Close()
+		return withIndex(v, cfg, func(ix *index.Index) error {
+			dropped, err := ix.DropOtherVectors(e.Model())
+			if err != nil {
+				return err
+			}
+			if dropped > 0 && !*quiet {
+				fmt.Printf("removed %d vectors from a previous model\n", dropped)
+			}
+			ctx, cancel := context.WithTimeout(context.Background(), time.Hour)
+			defer cancel()
+			n, err := embedPending(ctx, e, ix, 0)
+			if err != nil {
+				return fmt.Errorf("embedded %d memories before stopping: %w", n, err)
+			}
+			have, total, err := ix.VectorCoverage(e.Model())
+			if err != nil {
+				return err
+			}
+			if !*quiet {
+				fmt.Printf("embedded %d new; %d of %d current memories searchable by meaning (%s)\n", n, have, total, e.Model())
 			}
 			return nil
 		})

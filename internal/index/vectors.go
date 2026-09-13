@@ -75,6 +75,18 @@ func (ix *Index) VectorCoverage(model string) (have, total int, err error) {
 	return have, total, err
 }
 
+// DropOtherVectors deletes vectors made by any model other than model. After a
+// change of embedder the old vectors can never be compared with new queries,
+// so they are only dead weight. Returns how many were removed.
+func (ix *Index) DropOtherVectors(model string) (int, error) {
+	res, err := ix.db.Exec(`DELETE FROM vectors WHERE model <> ?`, model)
+	if err != nil {
+		return 0, err
+	}
+	n, _ := res.RowsAffected()
+	return int(n), nil
+}
+
 // EnableVectorCache keeps sign bits in memory for this process. Worth it for a
 // process that searches many times; a single CLI call should not pay the load.
 func (ix *Index) EnableVectorCache() {

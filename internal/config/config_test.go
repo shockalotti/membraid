@@ -43,7 +43,7 @@ func TestPartialFileOverlaysDefaults(t *testing.T) {
 func TestSetValidatesAndPersists(t *testing.T) {
 	withDir(t)
 	c := Defaults()
-	for _, bad := range [][2]string{{"auto_sync", "maybe"}, {"push_delay_sec", "-3"}, {"pull_interval_min", "x"}, {"nonsense", "1"}} {
+	for _, bad := range [][2]string{{"auto_sync", "maybe"}, {"push_delay_sec", "-3"}, {"pull_interval_min", "x"}, {"nonsense", "1"}, {"embeddings", "openai"}, {"embeddings", "on"}} {
 		if err := c.Set(bad[0], bad[1]); err == nil {
 			t.Errorf("Set(%q, %q) must fail", bad[0], bad[1])
 		}
@@ -79,5 +79,31 @@ func TestStateRoundTripAndAge(t *testing.T) {
 	age, ok := LoadState().SinceLastSuccess(now)
 	if !ok || age < 2*time.Minute || age > 4*time.Minute {
 		t.Errorf("age wrong: %v %v", age, ok)
+	}
+}
+
+// Embeddings are off by default and accept only local providers.
+func TestEmbeddingsSetting(t *testing.T) {
+	withDir(t)
+	c := Defaults()
+	if c.EmbeddingsOn() {
+		t.Fatal("embeddings must be off by default")
+	}
+	for _, v := range []string{"ollama", "builtin", "OFF"} {
+		if err := c.Set("embeddings", v); err != nil {
+			t.Errorf("Set(embeddings, %q): %v", v, err)
+		}
+	}
+	if c.EmbeddingsOn() {
+		t.Error("off must turn embeddings off")
+	}
+	c.Set("embeddings", "ollama")
+	c.Set("embed_model", "embeddinggemma:300m")
+	if err := c.Save(); err != nil {
+		t.Fatal(err)
+	}
+	got, err := Load()
+	if err != nil || !got.EmbeddingsOn() || got.Embeddings != "ollama" || got.EmbedModel != "embeddinggemma:300m" {
+		t.Errorf("embedding settings must persist, got %+v %v", got, err)
 	}
 }
