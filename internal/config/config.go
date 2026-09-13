@@ -28,10 +28,13 @@ type Config struct {
 	PullIntervalMin int `json:"pull_interval_min"`
 	// Host names this machine's wire-log file. Empty means the hostname.
 	Host string `json:"host,omitempty"`
+	// HalflifeDays is how many days without being retrieved it takes for a
+	// memory's search rank to halve (SPEC 7.2). Retrieval resets the clock.
+	HalflifeDays int `json:"halflife_days"`
 }
 
 func Defaults() Config {
-	return Config{AutoSync: true, PushDelaySec: 60, PullIntervalMin: 15}
+	return Config{AutoSync: true, PushDelaySec: 60, PullIntervalMin: 15, HalflifeDays: 30}
 }
 
 // Dir is MEMBRAID_CONFIG_DIR, or the platform config dir: ~/.config/membraid on
@@ -75,6 +78,9 @@ func (c *Config) clamp() {
 	if c.PullIntervalMin < 1 {
 		c.PullIntervalMin = 1
 	}
+	if c.HalflifeDays < 1 {
+		c.HalflifeDays = 30
+	}
 }
 
 func (c Config) Save() error {
@@ -98,20 +104,23 @@ func (c *Config) Set(key, value string) error {
 			return fmt.Errorf("auto_sync takes true or false, got %q", value)
 		}
 		c.AutoSync = b
-	case "push_delay_sec", "pull_interval_min":
+	case "push_delay_sec", "pull_interval_min", "halflife_days":
 		n, err := strconv.Atoi(strings.TrimSpace(value))
 		if err != nil || n < 1 {
 			return fmt.Errorf("%s takes a positive whole number, got %q", key, value)
 		}
-		if key == "push_delay_sec" {
+		switch key {
+		case "push_delay_sec":
 			c.PushDelaySec = n
-		} else {
+		case "pull_interval_min":
 			c.PullIntervalMin = n
+		default:
+			c.HalflifeDays = n
 		}
 	case "host":
 		c.Host = strings.TrimSpace(value)
 	default:
-		return fmt.Errorf("unknown setting %q (auto_sync, push_delay_sec, pull_interval_min, host)", key)
+		return fmt.Errorf("unknown setting %q (auto_sync, push_delay_sec, pull_interval_min, halflife_days, host)", key)
 	}
 	c.clamp()
 	return nil

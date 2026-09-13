@@ -450,6 +450,16 @@ So each line records the derived outcome, not just the input. Three line types:
 > Cross-machine merge rule: on a keyed subject the newest write (by timestamp,
 > ties by id) is live and every older one is closed, whichever order the lines
 > arrive in - so machines converge instead of diverging.
+>
+> **Implementation note (v1.15.1, retrieval state).** Checkpoint lines are
+> written by sync as well as sweep: at most once an hour, only when something
+> was retrieved since the last one, and carrying only rows that have a
+> `last_retrieved`. With one log per machine, replay cannot let the latest
+> snapshot replace the others, because one machine's snapshot would erase
+> another's retrievals. Replay keeps the newest `last_retrieved` per row across
+> every checkpoint instead. The line format is unchanged. Only intentional reads
+> record retrieval (search results returned to a caller, key and id lookups);
+> the session digest, status and maintenance reads never do (§7.2).
 
 ## 4. Cold Vault (source of truth)
 

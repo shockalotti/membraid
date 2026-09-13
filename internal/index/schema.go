@@ -6,7 +6,7 @@
 // may not.
 package index
 
-const schemaVersion = 1
+const schemaVersion = 2
 
 const schemaSQL = `
 CREATE TABLE IF NOT EXISTS memories (
@@ -55,6 +55,14 @@ CREATE VIRTUAL TABLE IF NOT EXISTS memories_fts USING fts5(
 CREATE TABLE IF NOT EXISTS log_offsets (
   file TEXT PRIMARY KEY,
   pos  INTEGER NOT NULL
+);
+
+-- Small per-index facts, such as when this index last wrote a retrieval
+-- checkpoint. Local state: rebuilt indexes start empty and simply checkpoint
+-- again.
+CREATE TABLE IF NOT EXISTS meta (
+  key   TEXT PRIMARY KEY,
+  value TEXT NOT NULL
 );
 
 CREATE TABLE IF NOT EXISTS scopes (

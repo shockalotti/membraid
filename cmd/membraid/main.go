@@ -36,6 +36,7 @@ Usage:
   membraid forget KEY | --id ID          retire a memory with nothing true to replace it
   membraid status [--json]               where you left off + what agents learned
   membraid context [--format claude]     the short digest an agent starts a session with
+  membraid context --explain             the digest, and why each memory was chosen
   membraid sync [--json]                 commit, pull, push, import - once
   membraid config [set KEY VALUE]        this machine's settings
   membraid timer install|remove|status   periodic sync via systemd (Linux)
@@ -56,9 +57,10 @@ Sync settings (membraid config set ...):
   auto_sync          true   push shortly after writes, pull when a session starts
   push_delay_sec     60     wait for writes to go quiet before pushing
   pull_interval_min  15     how stale a scheduled pull may get
+  halflife_days      30     days unused before a memory's search rank halves
   host               (hostname)  names this machine's log file
 
-The vault is plain markdown. You never need this tool to read or fix it.
+The vault is plain text in a git repo you own: every memory is a line in .hot/writes-*.jsonl.
 `
 
 func main() {
@@ -89,6 +91,7 @@ func run(args []string) error {
 	scheduled := fs.Bool("scheduled", false, "sync only if due (for the timer)")
 	quiet := fs.Bool("quiet", false, "no output on success")
 	format := fs.String("format", "text", "context output: text, or claude (a SessionStart hook payload)")
+	explain := fs.Bool("explain", false, "context: show why each memory was chosen")
 	harness := fs.String("harness", "", "install: comma-separated harness ids, instead of asking")
 	yes := fs.Bool("yes", false, "install: do not ask for confirmation")
 	dryRun := fs.Bool("dry-run", false, "install: show the plan and change nothing")
@@ -109,7 +112,7 @@ func run(args []string) error {
 			return err
 		}
 		fmt.Printf("created %s\n", v.Root())
-		fmt.Println("it is just markdown - open it, grep it, edit it")
+		fmt.Println("plain text in a folder you own - grep it, diff it, commit it")
 		return nil
 
 	case "ls":
@@ -207,6 +210,11 @@ func run(args []string) error {
 			if err != nil {
 				return err
 			}
+			ids := make([]string, len(hits))
+			for i, h := range hits {
+				ids[i] = h.ID
+			}
+			_ = ix.Touch(ids)
 			if *jsonOut {
 				return json.NewEncoder(os.Stdout).Encode(hits)
 			}
@@ -226,6 +234,7 @@ func run(args []string) error {
 		return withIndex(v, cfg, func(ix *index.Index) error {
 			sc := scope.Resolve(*scopeFlag)
 			found := false
+			var touched []string
 			for _, k := range []string{index.KindPreference, index.KindProjectParam, index.KindInsight, index.KindTaskState} {
 				if cmd == "get" {
 					m, err := ix.Current(sc, k, fs.Arg(0))
@@ -235,6 +244,7 @@ func run(args []string) error {
 					if m != nil {
 						fmt.Printf("%-14s %s  [id %s]\n", m.Kind, m.Content, m.ID)
 						found = true
+						touched = append(touched, m.ID)
 					}
 					continue
 				}
@@ -251,6 +261,7 @@ func run(args []string) error {
 					found = true
 				}
 			}
+			_ = ix.Touch(touched)
 			if !found {
 				fmt.Println("no answer for that subject")
 			}
@@ -360,9 +371,14 @@ func run(args []string) error {
 		// failure produces an empty digest and exit 0, never an error the
 		// harness would show or act on.
 		text := ""
+		var why []index.Scored
 		_ = withIndex(v, cfg, func(ix *index.Index) error {
 			var err error
-			text, err = buildContext(ix, scope.Resolve(*scopeFlag), scope.Name(""))
+			sc := scope.Resolve(*scopeFlag)
+			text, err = buildContext(ix, sc, scope.Name(""))
+			if *explain {
+				why, _ = ix.Digest(sc, digestItems)
+			}
 			return err
 		})
 		if *format == "claude" {
@@ -374,6 +390,17 @@ func run(args []string) error {
 			})
 		}
 		fmt.Print(text)
+		if *explain {
+			fmt.Println("\n### Why these: score = kind x scope x (1 + ln writes) x decay")
+			for _, s := range why {
+				content := strings.Join(strings.Fields(s.Content), " ")
+				if len(content) > 70 {
+					content = content[:67] + "..."
+				}
+				fmt.Printf("%6.3f  %-13s kind %.1f  scope %.1f  writes %-2d unused %5.1fd  decay %.2f  %s\n",
+					s.Score, s.Kind, s.KindWeight, s.ScopeWeight, s.Writes, s.UnusedDays, s.Decay, content)
+			}
+		}
 		return nil
 
 	case "sync":
@@ -458,6 +485,9 @@ func run(args []string) error {
 // Small on purpose. The whole memory would flood the context window and bury
 // the few things that matter; this is the digest, and memory_search is there
 // for everything else.
+// digestItems is how many known facts a session starts with.
+const digestItems = 12
+
 func buildContext(ix *index.Index, sc, name string) (string, error) {
 	const maxItem = 240
 	clip := func(s string) string {
@@ -479,7 +509,7 @@ func buildContext(ix *index.Index, sc, name string) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	learned, err := ix.Recent(sc, []string{index.KindPreference, index.KindProjectParam, index.KindInsight}, 12)
+	learned, err := ix.Digest(sc, digestItems)
 	if err != nil {
 		return "", err
 	}
@@ -561,6 +591,7 @@ func openIndex(v *vault.Vault, cfg config.Config) (*index.Index, func(), error) 
 		lg.Close()
 		return nil, nil, err
 	}
+	ix.SetHalflife(cfg.HalflifeDays)
 	if _, err := ix.ImportAll(); err != nil {
 		fmt.Fprintln(os.Stderr, "membraid: could not import from the wire log:", err)
 	}
@@ -575,6 +606,10 @@ func syncVault(ctx context.Context, v *vault.Vault, cfg config.Config, ix *index
 	st := config.LoadState()
 	st.LastAttempt = now()
 
+	// Record retrievals before committing, so they travel with this sync.
+	if _, err := ix.Checkpoint(time.Hour); err != nil {
+		fmt.Fprintln(os.Stderr, "membraid: could not write retrieval checkpoint:", err)
+	}
 	res, err := vaultsync.Run(ctx, v.Root(), vaultsync.Options{Host: wirelog.SafeHost(cfg.HostName())})
 	imported := 0
 	if err == nil && res.Skipped == "" {

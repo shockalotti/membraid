@@ -8,6 +8,31 @@ next agent in the loop.
 
 ---
 
+## v1.15.1 (implementation amendment: retrieval state and decay)
+
+**§3.4 checkpoints merge by newest time, and sync writes them.** The spec made
+each checkpoint a full snapshot superseding all earlier ones. That was written
+for one writer. With one log per machine, the last snapshot replayed would
+erase every other machine's retrievals, so replay now keeps the newest
+`last_retrieved` per row. Sync writes a checkpoint at most hourly when anything
+was retrieved since the last, so retrieval state reaches other machines and
+survives a rebuild without waiting for sweep. Line format unchanged.
+
+**§7.2 decay is live in keyword search.** bm25 selects a candidate pool five
+times the result size (at least 50) and decay reorders it:
+`relevance x exp(-ln2 x unused_days / halflife_days)`, halflife 30 days,
+unused counted from the later of the write and the last retrieval. Only
+intentional reads touch `last_retrieved`.
+
+**The session digest is scored, not newest-first.** `kind weight x scope weight
+x (1 + ln writes) x decay`, with preference 1.0, project_param 0.9, insight
+0.6, shared 0.7 outside the shared scope, and room kept for three standing
+preferences. `writes` counts every write to the subject, history included.
+`membraid context --explain` prints each factor. The weights are starting
+values, to be tuned from real use.
+
+---
+
 ## v1.15 (search decisions, from measurement)
 
 Semantic search moved from "later, if FTS5 falls short" to decided, on

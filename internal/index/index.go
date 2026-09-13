@@ -34,9 +34,10 @@ var validKinds = map[string]bool{
 const ScopeShared = "shared"
 
 type Index struct {
-	db  *sql.DB
-	log *wirelog.Log
-	now func() time.Time
+	db           *sql.DB
+	log          *wirelog.Log
+	now          func() time.Time
+	halflifeDays float64
 }
 
 // Open opens the index. Transactions take the write lock when they begin
@@ -455,6 +456,10 @@ func (ix *Index) ImportLog(files []string) (int, error) {
 			if _, err := applyRescope(tx, e.Rescope.From, e.Rescope.To); err != nil {
 				return 0, err
 			}
+		case e.Checkpoint != nil:
+			if err := applyCheckpoint(tx, *e.Checkpoint); err != nil {
+				return 0, err
+			}
 		}
 	}
 	for base, pos := range positions {
@@ -665,30 +670,6 @@ type Hit struct {
 	// ScopeName is the readable project name, filled in by callers that show
 	// more than one project at once. An id like g0c59d778 means nothing to read.
 	ScopeName string `json:"scope_name,omitempty"`
-}
-
-// Search runs FTS over current rows, with the scope predicate pushed into the
-// query so a busy unrelated project cannot starve the results.
-func (ix *Index) Search(q, scope string, limit int) ([]Hit, error) {
-	if limit <= 0 {
-		limit = 10
-	}
-	args := []any{ftsQuery(q)}
-	sqlText := `
-		SELECT m.id, m.kind, m.key, m.content, m.scope, m.source, m.valid_from
-		  FROM memories_fts f
-		  JOIN memories m ON m.id = f.id
-		 WHERE memories_fts MATCH ?
-		   AND m.valid_to IS NULL`
-	if scopes := effectiveScopes(scope); len(scopes) > 0 {
-		sqlText += ` AND m.scope IN (` + placeholders(len(scopes)) + `)`
-		for _, s := range scopes {
-			args = append(args, s)
-		}
-	}
-	sqlText += ` ORDER BY bm25(memories_fts) LIMIT ?`
-	args = append(args, limit)
-	return ix.hits(sqlText, args...)
 }
 
 // Recent returns the newest current rows: what the agents have been learning.

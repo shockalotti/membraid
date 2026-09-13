@@ -239,6 +239,7 @@ const serverInstructions = `membraid is the user's shared memory across every ag
 Read:
 - Before asking the user something they may already have told an agent, or starting work on a project, call memory_search.
 - To check one specific fact, memory_get with its key is cheapest.
+- Search matches words, not meaning. If the results miss, search again with different words: a synonym, the tool or file name, or the key you expect.
 
 Write (memory_write) when:
 - the user states a preference or corrects how you work - kind preference, usually scope "shared"
@@ -316,7 +317,8 @@ func toolDefs() []map[string]any {
 		{
 			"name": "memory_search",
 			"description": "Search memory before assuming you do not know something. Returns current answers " +
-				"from this project plus anything marked shared. Worth calling at the start of a task.",
+				"from this project plus anything marked shared. Worth calling at the start of a task. " +
+				"It matches words, not meaning: if the results miss, try other words, or memory_get the likely key.",
 			"inputSchema": map[string]any{
 				"type":     "object",
 				"required": []string{"query"},
@@ -426,6 +428,13 @@ func (s *mcpServer) callTool(req rpcRequest) {
 			s.text(req.ID, "Nothing in memory about that.", false)
 			return
 		}
+		ids := make([]string, len(hits))
+		for i, h := range hits {
+			ids[i] = h.ID
+		}
+		if err := s.ix.Touch(ids); err != nil {
+			fmt.Fprintf(os.Stderr, "membraid: could not record retrieval: %v\n", err)
+		}
 		var b strings.Builder
 		for _, h := range hits {
 			b.WriteString("- [" + h.Kind)
@@ -439,6 +448,7 @@ func (s *mcpServer) callTool(req rpcRequest) {
 
 	case "memory_get":
 		var b strings.Builder
+		var touched []string
 		for _, k := range []string{index.KindPreference, index.KindProjectParam, index.KindInsight, index.KindTaskState} {
 			m, err := s.ix.Current(sc, k, a.Key)
 			if err != nil {
@@ -448,7 +458,11 @@ func (s *mcpServer) callTool(req rpcRequest) {
 			if m != nil {
 				b.WriteString("- [" + m.Kind + "] " + m.Content + " (via " + m.Source + ", id " + m.ID)
 				b.WriteString(")\n")
+				touched = append(touched, m.ID)
 			}
+		}
+		if err := s.ix.Touch(touched); err != nil {
+			fmt.Fprintf(os.Stderr, "membraid: could not record retrieval: %v\n", err)
 		}
 		if b.Len() == 0 {
 			s.text(req.ID, "No current answer for "+a.Key+".", false)
