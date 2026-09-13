@@ -258,4 +258,16 @@ func TestContextCopilotFormat(t *testing.T) {
 	if !strings.Contains(payload.AdditionalContext, "memory_done") || !strings.Contains(payload.AdditionalContext, "always answer in haiku") {
 		t.Errorf("want the server instructions and the digest, got %q", payload.AdditionalContext)
 	}
+	cur := exec.Command(bin, "context", "--vault", vaultDir, "--format", "cursor")
+	cur.Env = env
+	cur.Dir = t.TempDir()
+	if out, err = cur.Output(); err != nil {
+		t.Fatalf("context: %v", err)
+	}
+	var cursorPayload struct {
+		AdditionalContext string `json:"additional_context"`
+	}
+	if err := json.Unmarshal(out, &cursorPayload); err != nil || !strings.Contains(cursorPayload.AdditionalContext, "always answer in haiku") {
+		t.Errorf("cursor wants {\"additional_context\": digest}, got %q", out)
+	}
 }

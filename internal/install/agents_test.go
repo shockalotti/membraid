@@ -174,3 +174,37 @@ func TestCopilot(t *testing.T) {
 		t.Error("a second install must change nothing")
 	}
 }
+
+func TestCursor(t *testing.T) {
+	e, _ := newEnv(t)
+	write(t, e.path(".cursor", "mcp.json"), `{"mcpServers": {"memory": {"command": "/home/x/go/bin/membraid", "args": ["mcp"]}, "other": {"url": "https://example.test"}}}`)
+	write(t, e.path(".cursor", "hooks.json"), `{"version": 1, "hooks": {"sessionStart": [{"command": "echo mine"}, {"command": "/old/membraid context"}, {"command": "/old/membraid context --format cursor"}]}}`)
+	apply(t, e, "cursor")
+
+	servers := readJSON(t, e.path(".cursor", "mcp.json"))["mcpServers"].(map[string]any)
+	if _, ok := servers["other"]; !ok {
+		t.Error("other servers must survive")
+	}
+	if _, ok := servers["memory"]; ok {
+		t.Error("legacy entry must be migrated")
+	}
+	if m := servers["membraid"].(map[string]any); m["command"] != bin || strings.Join(toStrings(m["args"]), " ") != "mcp --source cursor" {
+		t.Errorf("membraid entry wrong: %v", m)
+	}
+	var commands []string
+	for _, h := range readJSON(t, e.path(".cursor", "hooks.json"))["hooks"].(map[string]any)["sessionStart"].([]any) {
+		commands = append(commands, h.(map[string]any)["command"].(string))
+	}
+	if len(commands) != 2 || commands[0] != "echo mine" || commands[1] != bin+" context --format cursor 2>/dev/null || true" {
+		t.Errorf("want the user's hook kept and one current membraid hook, got %q", commands)
+	}
+	if got, _ := os.ReadFile(e.path(".agents", "skills", "membraid", "SKILL.md")); string(got) != skill(t) {
+		t.Error("Cursor reads skills from ~/.agents/skills")
+	}
+
+	before, _ := os.ReadFile(e.path(".cursor", "hooks.json"))
+	apply(t, e, "cursor")
+	if after, _ := os.ReadFile(e.path(".cursor", "hooks.json")); string(after) != string(before) {
+		t.Error("a second install must change nothing")
+	}
+}

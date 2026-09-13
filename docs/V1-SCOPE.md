@@ -89,7 +89,7 @@ next starts; the goal is the **usable** line below, not the bottom of the table.
 | 4 | **Keyed supersession** | §6.2, §6.3 | **done** - without it the shared brain holds five contradictory opinions |
 | 5 | CLI: `write`, `search`, `get` | §10 | **done** - the universal adapter; anything that can shell out is connected |
 | 6 | stdio MCP server | §10 | **done** - now five tools: write, search, get, done, forget |
-| 7 | Wire into the stack, both machines | §14 | **done** - Claude Code, OpenCode, Grok, Crush, Pi, Gemini CLI and Copilot CLI on omarchy (Codex installed, not yet tested end to end); Hermes on the wynneclaw1 minipc. **Usable from here** |
+| 7 | Wire into the stack, both machines | §14 | **done** - Claude Code, OpenCode, Grok, Crush, Pi, Gemini CLI and Copilot CLI on omarchy (Codex and Cursor CLI installed, not yet tested end to end); Hermes on the wynneclaw1 minipc. **Usable from here** |
 | 7a | **Sync**: per-machine logs, push after writes, pull at session start, systemd timer | §3.3, §4.5 | **done** - switching machines is the case the whole premise rests on |
 | 7b | Finishing tasks (`done`, `close` line) | §6.1 | **done** - without it an unkeyed task stayed in *where you left off* forever |
 

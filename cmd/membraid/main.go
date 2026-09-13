@@ -96,7 +96,7 @@ func run(args []string) error {
 	id := fs.String("id", "", "row id, for done")
 	scheduled := fs.Bool("scheduled", false, "sync only if due (for the timer)")
 	quiet := fs.Bool("quiet", false, "no output on success")
-	format := fs.String("format", "text", "context output: text, claude (a SessionStart hook payload), or copilot (a sessionStart hook payload with the server instructions)")
+	format := fs.String("format", "text", "context output: text, claude (a SessionStart hook payload), copilot (a sessionStart hook payload with the server instructions), or cursor (a sessionStart hook payload)")
 	explain := fs.Bool("explain", false, "context: show why each memory was chosen")
 	digestFlag := fs.Bool("digest", false, "mcp: add the session digest to the server instructions")
 	harness := fs.String("harness", "", "install: comma-separated harness ids, instead of asking")
@@ -418,6 +418,9 @@ func run(args []string) error {
 			return json.NewEncoder(os.Stdout).Encode(map[string]any{
 				"additionalContext": strings.TrimSpace(serverInstructions + "\n\n" + text),
 			})
+		}
+		if *format == "cursor" {
+			return json.NewEncoder(os.Stdout).Encode(map[string]any{"additional_context": text})
 		}
 		if *format == "claude" {
 			return json.NewEncoder(os.Stdout).Encode(map[string]any{

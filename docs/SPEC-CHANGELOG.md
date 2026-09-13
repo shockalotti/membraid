@@ -8,6 +8,23 @@ next agent in the loop.
 
 ---
 
+## v1.15.5 (implementation amendments: Cursor CLI)
+
+**Cursor CLI takes a hook, in its own shape.** The server goes in
+`~/.cursor/mcp.json`, where global servers load without approval. The digest
+comes from a `sessionStart` hook in `~/.cursor/hooks.json`, whose entries are
+flat rather than Claude Code's groups; Cursor ignores plain stdout and reads
+`additional_context` from JSON, so `membraid context --format cursor` prints
+`{"additional_context": ...}`. The Cursor editor reads the same files. The skill
+is the `~/.agents/skills` copy; Cursor also reads `~/.claude/skills` and merges
+skills by file path, not name, so both copies appear where both exist.
+
+**Configured and checked, not yet live.** `cursor-agent mcp list-tools` shows
+membraid's five tools; a session could not run without a Cursor login, and
+whether Cursor's servers show hook context to the model is decided server-side.
+
+---
+
 ## v1.15.4 (implementation amendments: Gemini CLI and Copilot CLI)
 
 **Gemini CLI takes the digest the way Crush does.** `gemini mcp add -s user`

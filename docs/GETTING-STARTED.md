@@ -19,6 +19,7 @@ machine already ticked, shows exactly what it will change, then does it:
 | Codex | `codex mcp add` | `SessionStart` hook in `~/.codex/hooks.json` | `~/.agents/skills/membraid` |
 | Copilot CLI | `~/.copilot/mcp-config.json` | `sessionStart` hook in `~/.copilot/hooks/membraid.json` | shares the `~/.agents` copy |
 | Crush | `~/.config/crush/crush.json` | in the MCP server instructions | shares the Claude copy |
+| Cursor CLI | `~/.cursor/mcp.json` | `sessionStart` hook in `~/.cursor/hooks.json` | shares the `~/.agents` copy |
 | Gemini CLI | `gemini mcp add` | in the MCP server instructions | shares the `~/.agents` copy |
 | Grok | `grok mcp add` | `grok()` function in `~/.bashrc` or `~/.zshrc` | shares the Claude copy |
 | Hermes | `hermes mcp add` | plugin | `~/.hermes/skills/membraid` |
@@ -284,6 +285,11 @@ membraid context        # see exactly what an agent starts with
   instructions in the system prompt, so `install` starts the server with
   `membraid mcp --digest`, which adds the digest to those instructions. It is
   built when Crush starts the server, for the directory Crush runs in.
+- **Cursor CLI** - a `sessionStart` hook in `~/.cursor/hooks.json` that runs
+  `membraid context --format cursor`, since Cursor reads only JSON from a hook.
+  The Cursor editor reads the same files. Cursor lists skills from both
+  `~/.claude/skills` and `~/.agents/skills` without merging same-named copies,
+  so where both exist `membraid` shows twice. Not yet tested in a live session.
 - **Gemini CLI** - like Crush, the digest comes with the server instructions
   (`--digest`). Gemini runs user MCP servers only in folders you trust, and asks
   the first time you open one; in an untrusted folder it gets neither the tools
@@ -361,7 +367,7 @@ tasks per other project. It is chosen by **recency, not relevance**: it does not
 know what you are about to ask. Claude Code gets it from the `SessionStart`
 hook, OpenCode from its plugin (re-attached to every request, but the same text
 all session), Hermes from its plugin on the first turn, Codex from its `SessionStart` hook,
-Copilot from its `sessionStart` hook, Crush, Gemini and Pi with the MCP server
+Copilot and Cursor from their `sessionStart` hooks, Crush, Gemini and Pi with the MCP server
 instructions, and Grok through `--rules`.
 
 **During a conversation nothing is injected.** Memory enters the context only

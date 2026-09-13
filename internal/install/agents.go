@@ -175,6 +175,83 @@ func crush() Target {
 	}
 }
 
+func cursor() Target {
+	return Target{
+		ID: "cursor", Name: "Cursor CLI",
+		Detect: func(e *Env) bool { return e.has("cursor-agent", ".cursor") },
+		Notes: []string{
+			"The Cursor editor reads the same ~/.cursor/mcp.json and hooks.json, so it gets membraid too.",
+			"Cursor reads skills from both ~/.claude/skills and ~/.agents/skills and keeps copies with the same name apart, so where both exist it lists membraid twice (the second as membraid-2). Harmless: they are the same file.",
+		},
+		Steps: func(e *Env) []Step {
+			return []Step{
+				{Desc: "MCP server " + ServerName + " in ~/.cursor/mcp.json", Apply: func(e *Env) error {
+					return editJSON(e.path(".cursor", "mcp.json"), func(doc map[string]any) bool {
+						servers, _ := doc["mcpServers"].(map[string]any)
+						if servers == nil {
+							servers = map[string]any{}
+						}
+						changed := migrateLegacy(servers)
+						want := map[string]any{"command": e.Bin, "args": []any{"mcp", "--source", "cursor"}}
+						if !sameJSON(servers[ServerName], want) {
+							servers[ServerName] = want
+							changed = true
+						}
+						doc["mcpServers"] = servers
+						return changed
+					})
+				}},
+				{Desc: "session digest: sessionStart hook in ~/.cursor/hooks.json", Apply: cursorHook},
+				skillStep(filepath.Join(".agents", "skills", "membraid", "SKILL.md")),
+			}
+		},
+	}
+}
+
+// cursorHook leaves exactly one membraid sessionStart hook in Cursor's hooks
+// file, whose entries are flat, unlike Claude Code's groups. Cursor reads only
+// JSON from a hook, so it runs the cursor format.
+func cursorHook(e *Env) error {
+	command := e.Bin + " context --format cursor 2>/dev/null || true"
+	return editJSON(e.path(".cursor", "hooks.json"), func(doc map[string]any) bool {
+		changed := false
+		if _, ok := doc["version"]; !ok {
+			doc["version"] = 1
+			changed = true
+		}
+		hooks, _ := doc["hooks"].(map[string]any)
+		if hooks == nil {
+			hooks = map[string]any{}
+		}
+		entries, _ := hooks["sessionStart"].([]any)
+		found := false
+		kept := []any{}
+		for _, h := range entries {
+			hook, ok := h.(map[string]any)
+			cmd, _ := hook["command"].(string)
+			if ok && strings.Contains(cmd, "membraid") && strings.Contains(cmd, " context") {
+				if found {
+					changed = true
+					continue
+				}
+				found = true
+				if cmd != command {
+					hook["command"] = command
+					changed = true
+				}
+			}
+			kept = append(kept, h)
+		}
+		if !found {
+			kept = append(kept, map[string]any{"command": command, "timeout": 10})
+			changed = true
+		}
+		hooks["sessionStart"] = kept
+		doc["hooks"] = hooks
+		return changed
+	})
+}
+
 func gemini() Target {
 	return Target{
 		ID: "gemini", Name: "Gemini CLI",
