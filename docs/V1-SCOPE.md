@@ -160,6 +160,7 @@ does not exist on day one, and each is cheap to add when it does.
 | Vector search | §16 M11 | Decided, no longer deferred: pure Go over the existing SQLite index, optional local embeddings (EmbeddingGemma via Ollama, or built-in all-MiniLM), vector-only when on. Measurements and rejected alternatives in [SEARCH-EVALUATION.md](SEARCH-EVALUATION.md) |
 | Embedding speed on low-end machines | - | Deferred by choice. The embedding bake-off picks a default model on a fast laptop first; the weakest supported machine (e.g. a 4-core minipc) is tested before that model is recommended to anyone |
 | Cloud embedding APIs (Gemini, Voyage, Mistral, Jina and similar) | - | Deferred by choice: memory stays on the user's own machines. If ever added, strictly opt-in, with a clear warning that memory content leaves the machine |
+| Folders as knowledge sources (indexing Obsidian vaults, docs or notes folders for search) | - | Dropped for now, on purpose: searching documents people wrote is a different problem from sharing what agents learn, agents can already read files and use filesystem or Obsidian MCP servers, and indexing arbitrary folders is the riskiest thing membraid could do with secrets. Instead, a memory records where knowledge lives ("the API specs are in ~/Work/specs/api"), and the skill tells agents to write those. Revisit only if daily use shows agents repeatedly pointed at the same outside folders by hand |
 
 ### Loose ends to pick up later
 
