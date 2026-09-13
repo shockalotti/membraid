@@ -1,4 +1,4 @@
-# Memory Engine - v1 build scope
+# membraid - v1 build scope
 
 **Read this before SPEC.md.** SPEC.md is the design reference: 1,450 lines,
 fourteen rounds of adversarial review, and correct about things v1 will not
@@ -11,8 +11,9 @@ build for months. This file says what v1 actually is and why the rest waits.
 **Memory for coding agents that gets better with use instead of worse, stored
 in files you can read.**
 
-One sentence more: an agent writes a fact, the engine files it as markdown and
-indexes it; a later fact on the same subject supersedes the earlier one instead
+One sentence more: an agent writes a fact, the engine appends it to a plain-text
+log in the vault and indexes it (markdown concept files are what distillation
+will produce); a later fact on the same subject supersedes the earlier one instead
 of competing with it; what nobody retrieves fades; and you can `grep` the whole
 thing or fix a wrong line in your editor.
 
@@ -23,9 +24,9 @@ Hermes, DSH.** Not a guess at what most developers use - the person who will
 find out whether this helps.
 
 **All five speak MCP.** Hermes Agent supports stdio and remote HTTP servers
-with discovery at startup; Grok CLI configures them in `.grok/settings.json`;
-DSH does too, and the spec line claiming otherwise was stale. So one stdio MCP
-server reaches the entire stack, and that is the integration path.
+with discovery at startup; Grok CLI configures them in `~/.grok/config.toml`
+(written by `grok mcp add`); DSH does too, and the spec line claiming otherwise
+was stale. So one stdio MCP server reaches the entire stack, and that is the integration path.
 
 The CLI stays as a second surface anyway, because it costs almost nothing and
 covers anything that can run a shell command - a script, a cron job, a harness
@@ -83,27 +84,51 @@ next starts; the goal is the **usable** line below, not the bottom of the table.
 | # | Slice | SPEC ref | Why now |
 |---|---|---|---|
 | 1 | Wire log | §3.4, §5.3 | **done** - the only non-rebuildable artifact, so it is built and tested first |
-| 2 | Vault: markdown, frontmatter, `init` | §4 | **done** - the source of truth, and the whole simple-interaction story |
-| 3 | Hot index: tables + FTS5 | §5.1, §5.2 | Search is what makes one brain feel like one brain |
-| 4 | **Keyed supersession** | §6.2, §6.3 | Cheap, and without it the shared brain holds five contradictory opinions |
-| 5 | CLI: `write`, `search`, `get` | §10 | **The universal adapter.** Anything that can shell out is now connected |
-| 6 | stdio MCP: same three tools | §10 | Native surface for Claude Code and OpenCode |
-| 7 | Wire into the stack, both machines | §14 | **<- usable here.** Stop and use it |
+| 2 | Vault: markdown, frontmatter, `init` | §4 | **done** as a layout: `init`, `index.md`, `log.md`, and a concept-file writer. Memories themselves live in the append-only log in `.hot/`; nothing writes a concept file until distillation (slice 9), so readable per-subject files do not exist yet |
+| 3 | Hot index: tables + FTS5 | §5.1, §5.2 | **done** - search is what makes one brain feel like one brain |
+| 4 | **Keyed supersession** | §6.2, §6.3 | **done** - without it the shared brain holds five contradictory opinions |
+| 5 | CLI: `write`, `search`, `get` | §10 | **done** - the universal adapter; anything that can shell out is connected |
+| 6 | stdio MCP server | §10 | **done** - now five tools: write, search, get, done, forget |
+| 7 | Wire into the stack, both machines | §14 | **done** - Claude Code, OpenCode and Grok on omarchy; Hermes on the wynneclaw1 minipc. **Usable from here** |
 | 7a | **Sync**: per-machine logs, push after writes, pull at session start, systemd timer | §3.3, §4.5 | **done** - switching machines is the case the whole premise rests on |
 | 7b | Finishing tasks (`done`, `close` line) | §6.1 | **done** - without it an unkeyed task stayed in *where you left off* forever |
 
-Then, and only when the store is big enough to hurt:
+### Built beyond the plan, because use needed it
 
-| # | Slice | SPEC ref | Wait for |
-|---|---|---|---|
-| 8 | Decay in ranking | §7.2 | Search results getting noisy |
-| 9 | Distillation | §8 | Enough repetition to consolidate |
-| 10 | Sweep | §9 | The store growing unpleasantly |
+| What | Why |
+|---|---|
+| Omarchy bar widget + `status --json` | A visible reminder that memory exists, and one click to finish a task |
+| Scope identity: git root commit (`g` + 8 hex), else path hash (`p` + 8 hex); scope registry, moved-project detection, logged `rescope` | People move folders; a path-based scope silently started an empty second brain |
+| Session digest (`membraid context`) + MCP server instructions | Tools alone are passive; sessions now start knowing where you left off, and every harness is told when to write |
+| Agent skill + `membraid install` (asks which harnesses, migrates the old `memory` server name) | How to write well, and one command to set up every harness |
+| `forget` + `memory_forget` | Only tasks could be closed; a mistaken memory stayed in every digest for good |
+| Mid-session refresh: import before every tool call, background pull once the pull interval elapses | Long-lived servers (Hermes's gateway runs for days) never saw memories pulled after they started |
 
-Slices 8-10 are the quality layer. They make memory better. They do not make
-seven tools into one brain, so they are not what v1 is testing.
+### The quality layer: in progress
 
-Single process. Local only. One client at a time.
+The original plan held these back until the store was big enough to hurt. The
+decision now is to build them rather than wait; their design is being settled
+against the spec before code.
+
+| # | Slice | SPEC ref |
+|---|---|---|
+| 8 | Decay in ranking | §7.2 |
+| 9 | Distillation | §8 |
+| 10 | Sweep | §9 |
+
+Slices 8-10 make memory better. They do not make seven tools into one brain,
+so they are not what the coherence test below measures.
+
+### Concurrency is real
+
+The plan assumed one process and one client at a time. In practice several
+harnesses run their own MCP server against one vault at once (on the minipc,
+Hermes alone runs two). What holds that together today: SQLite in WAL mode with
+a busy timeout, one append-only log file per host, and a file lock around git
+sync. Nothing yet tests many simultaneous writers; a stress test is planned.
+
+Local only: each machine works on its own clone, and git is the only thing that
+crosses the network.
 
 ## Deliberately deferred
 
@@ -112,8 +137,8 @@ does not exist on day one, and each is cheap to add when it does.
 
 | Deferred | SPEC ref | Wait for |
 |---|---|---|
-| Daemon + stdio shim, flock, spawn races | §3.1 | A second concurrent client |
-| Windows loopback, pid+nonce handshake | §3.1 | Windows support |
+| Daemon + stdio shim, flock, spawn races | §3.1 | Concurrent clients now exist without a daemon; a flock guards git sync only. Revisit if the stress test finds problems |
+| Windows loopback, pid+nonce handshake | §3.1 | Windows support. The binary builds for Windows and has a Windows lock file, but is untested, and the Claude Code hook `install` writes uses bash syntax. Deferred by choice |
 | REST API, TLS, bearer tokens, token->source | §11, §12 | Remote or non-MCP consumers |
 | `backup` online API + capture order | §3.3 | Data worth backing up |
 | `reindex` flock gating, `init` refusal | §3.3 | A resident daemon to race |
@@ -143,7 +168,7 @@ least two harnesses and both machines:
    keyed supersession is not firing and slice 4 needs work.
 
 None of this measures memory quality, and that is deliberate. Quality is what
-slices 7-9 buy, and buying it before coherence is proven is building the wrong
+slices 8-10 buy, and buying it before coherence is proven is building the wrong
 thing carefully.
 
 If after two weeks the answer is "I did not notice it", that is a real result.

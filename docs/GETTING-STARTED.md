@@ -22,7 +22,14 @@ machine already ticked, shows exactly what it will change, then does it:
 | Sync timer (systemd) | | | |
 
 It also creates the vault at `~/.membraid/vault` if there is none. Then restart
-each harness you picked.
+each harness you picked, and start a **new** conversation: one opened before
+membraid was installed keeps the tool list it started with.
+
+**Hermes on a server** runs two services, and each starts its own membraid:
+`hermes-gateway` (Discord, Telegram and other messaging) and `hermes-dashboard`
+(the web dashboard, which is also the backend the Hermes desktop app connects
+to). Restart both after upgrading membraid. Several membraid servers on one
+vault at once is normal.
 
 ```sh
 membraid install --dry-run                     # show the plan, change nothing
@@ -86,9 +93,11 @@ membraid init --vault "~/Documents/MyVault/Agent Memory"
 export MEMBRAID_VAULT="$HOME/Documents/MyVault/Agent Memory"
 ```
 
-Your notes, agent memory, and Obsidian's graph all live together - wikilinks
-work across the boundary - while membraid only ever writes inside its own
-folder. Pointing it at a vault root that already has files in it is refused,
+membraid only ever writes inside its own folder. Today that folder shows
+little in Obsidian: memories live in the append-only log in `.hot/`, which
+Obsidian hides, so the only visible notes are `index.md` and `log.md`.
+Readable concept notes, one per subject, are what distillation (slice 9) will
+add. Pointing it at a vault root that already has files in it is refused,
 with the subfolder command in the error.
 
 Everything engine-owned lives in `.hot/`, which Obsidian hides: the wire log,
@@ -277,26 +286,74 @@ writes `deploy.target = railway`; three weeks later Grok writes
 `deploy.target = fly.io`; there is **one** live answer and the old one stays in
 history with the agent that wrote it.
 
+## What an agent actually sees
+
+**At session start**, four things reach the model:
+
+| What | Size | Contains memories? |
+|---|---|---|
+| MCP server instructions: when to search, when to write, keys, no secrets | ~1,500 chars | no |
+| Five tool definitions | ~3,900 chars | no |
+| The membraid skill: only its description, until the agent loads it | ~375 chars (~7,800 if loaded) | no |
+| The digest | under 4,000 chars | **yes** |
+
+Claude Code and Hermes may keep MCP tools behind a tool search until the model
+asks for them, so the definitions are not always in the prompt.
+
+The digest is the only part built from memory. It holds up to 8 open tasks in
+this project, the 12 newest facts (preferences, project values, insights) from
+this project plus `shared`, each clipped to 240 characters, and a count of open
+tasks per other project. It is chosen by **recency, not relevance**: it does not
+know what you are about to ask. Claude Code gets it from the `SessionStart`
+hook, OpenCode from its plugin (re-attached to every request, but the same text
+all session), Hermes from its plugin on the first turn, and Grok not at all.
+
+**During a conversation nothing is injected.** Memory enters the context only
+when the agent calls a tool: `memory_search` returns up to 10 hits, one line
+each with kind, key, content, scope, the agent that wrote it, and its id.
+Whether it searches is the agent's call, guided by the instructions.
+
+**Search is keyword full-text, not semantic**: SQLite FTS5 with porter stemming,
+ranked by BM25. It finds "deploy target" in a memory that says deploy target;
+it will not connect "where does this app run" to "deploys to Railway". Reusing
+keys is what keeps related memories findable.
+
+**How long a memory takes to reach another machine.** A write is pushed about
+60 seconds after writes go quiet. The other machine pulls when a session starts
+there, when its 5-minute timer finds the last pull 15+ minutes old, and from
+inside any running MCP server once that interval has passed. The digest is built
+from what is already on disk while the session-start pull runs in the
+background, so a memory written elsewhere a minute ago can miss a new session's
+digest and still turn up in its searches.
+
 ## Use it from anything else
 
 Scripts, cron, a harness nobody has written yet:
 
 ```sh
 membraid write "deploy target is railway" --key deploy.target --kind project_param
-membraid search "deploy"
+membraid search "deploy"             # results show each memory's id
 membraid get deploy.target
 membraid history deploy.target
+membraid done task.auth.fix          # finish a task, or: done --id ID
+membraid forget --id ID              # retire a memory with nothing true to replace it
 ```
 
 ## Read it without any of this
 
-That is the point:
+That is the point. Every memory is a line of plain JSON in the vault's
+`.hot/writes-<month>-<host>.jsonl` files, and the vault is a git repo:
 
 ```sh
 cd ~/.membraid/vault
-grep -ri "deploy" .
-$EDITOR rules/never-force-push.md
-rm facts/something-wrong.md
+grep -i "deploy" .hot/writes-*.jsonl
+git log -p .hot/                     # who learned what, and when
 ```
+
+The files are append-only history, so fix memory through `write` (same key) or
+`forget` rather than by editing lines: a hand-edited line would not match what
+other machines already imported. Markdown notes you drop in the vault are read
+by `membraid ls` and `cat`; distillation (in progress) is where memories will
+become markdown concept files.
 
 Nothing here needs tending. Tending it just makes it better.
