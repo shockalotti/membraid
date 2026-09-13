@@ -8,6 +8,33 @@ next agent in the loop.
 
 ---
 
+## v1.15.3 (implementation amendments: Codex, Crush and Pi)
+
+**§14 wiring reaches three more harnesses, each through what it actually
+offers.** Codex takes the MCP server through `codex mcp add`, the digest from a
+`SessionStart` hook in `~/.codex/hooks.json` (Codex asks the user to trust a new
+hook once, through `/hooks`), and the skill from `~/.agents/skills`. Crush has
+no session-start hook but places MCP server instructions in the system prompt,
+so `membraid mcp` gains `--digest`, which appends the digest for the server's
+working directory to its instructions. Pi has no MCP by design, so a Pi
+extension runs `membraid mcp --source pi --digest` per session, registers its
+tools and appends the instructions to the system prompt; it shares the
+`~/.agents/skills` copy of the skill with Codex.
+
+**Read tools declare `readOnlyHint`.** `memory_search` and `memory_get` carry the
+MCP read-only annotation, so harnesses that gate tool calls, Codex among them,
+can let them run without asking.
+
+**Verified by running each harness, not only by config tests.** Crush and Pi
+each passed a real session against a throwaway vault with a Gemini model: the
+model stated a fact it could only have from the digest before calling any tool,
+then wrote and searched through membraid, and the rows landed with the right
+source. Codex is installed and loads the skill, but is not yet tested end to
+end: it no longer accepts the chat completions API that Gemini's compatible
+endpoint provides.
+
+---
+
 ## v1.15.2 (implementation amendments: distillation, sweep and staging)
 
 **§8 distillation writes readable notes, keyed subjects first.** A keyed subject

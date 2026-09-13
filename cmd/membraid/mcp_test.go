@@ -163,3 +163,62 @@ func TestMCPSeesMemoriesThatArriveMidSession(t *testing.T) {
 		t.Errorf("a memory pulled mid-session must be searchable without a restart, got %q", txt)
 	}
 }
+
+// Harnesses with no session-start hook (Crush, Pi) get the digest through the
+// server instructions, only when they ask for it with --digest. Read tools are
+// marked read-only, so harnesses that gate tool calls (Codex) can let them run.
+func TestMCPDigestInInstructions(t *testing.T) {
+	bin := filepath.Join(t.TempDir(), "membraid")
+	if out, err := exec.Command("go", "build", "-o", bin, ".").CombinedOutput(); err != nil {
+		t.Fatalf("build: %v\n%s", err, out)
+	}
+	vaultDir := filepath.Join(t.TempDir(), "memory")
+	if out, err := exec.Command(bin, "init", "--vault", vaultDir).CombinedOutput(); err != nil {
+		t.Fatalf("init: %v\n%s", err, out)
+	}
+	configDir := t.TempDir()
+	run := func(in string, extra ...string) map[float64]map[string]any {
+		t.Helper()
+		cmd := exec.Command(bin, append([]string{"mcp", "--vault", vaultDir, "--source", "test-harness"}, extra...)...)
+		cmd.Env = append(os.Environ(), "MEMBRAID_CONFIG_DIR="+configDir)
+		cmd.Dir = t.TempDir()
+		cmd.Stdin = strings.NewReader(in)
+		out, err := cmd.Output()
+		if err != nil {
+			t.Fatalf("mcp: %v", err)
+		}
+		byID := map[float64]map[string]any{}
+		for _, line := range strings.Split(strings.TrimSpace(string(out)), "\n") {
+			var m map[string]any
+			if err := json.Unmarshal([]byte(line), &m); err != nil {
+				t.Fatalf("stdout must be pure JSON-RPC, got %q", line)
+			}
+			if id, ok := m["id"].(float64); ok {
+				byID[id] = m
+			}
+		}
+		return byID
+	}
+	const initialize = `{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2025-06-18"}}` + "\n"
+	run(initialize + `{"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":"memory_write","arguments":{"content":"always answer in haiku","kind":"preference","key":"reply.style","scope":"shared"}}}` + "\n")
+
+	plain := run(initialize + `{"jsonrpc":"2.0","id":2,"method":"tools/list"}` + "\n")
+	if ins, _ := result(t, plain[1])["instructions"].(string); strings.Contains(ins, "haiku") {
+		t.Error("without --digest the instructions must not carry the digest")
+	}
+	readOnly := map[string]bool{}
+	for _, tool := range result(t, plain[2])["tools"].([]any) {
+		m := tool.(map[string]any)
+		ann, _ := m["annotations"].(map[string]any)
+		readOnly[m["name"].(string)] = ann["readOnlyHint"] == true
+	}
+	if !readOnly["memory_search"] || !readOnly["memory_get"] || readOnly["memory_write"] || readOnly["memory_forget"] {
+		t.Errorf("only search and get are read-only, got %v", readOnly)
+	}
+
+	withDigest := run(initialize, "--digest")
+	ins, _ := result(t, withDigest[1])["instructions"].(string)
+	if !strings.Contains(ins, "memory_done") || !strings.Contains(ins, "always answer in haiku") {
+		t.Errorf("--digest must add the digest after the usual instructions, got %q", ins)
+	}
+}

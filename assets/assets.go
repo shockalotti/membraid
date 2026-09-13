@@ -6,5 +6,5 @@ package assets
 
 import "embed"
 
-//go:embed skill/SKILL.md opencode/membraid.js hermes/plugin.yaml hermes/__init__.py omarchy/manifest.json omarchy/Panel.qml
+//go:embed skill/SKILL.md opencode/membraid.js hermes/plugin.yaml hermes/__init__.py omarchy/manifest.json omarchy/Panel.qml pi/membraid.ts
 var FS embed.FS

@@ -10,7 +10,7 @@ import (
 
 // Targets is every harness install knows, in the order it offers them.
 func Targets() []Target {
-	return []Target{claudeCode(), openCode(), grok(), hermes(), omarchyWidget(), embeddings()}
+	return []Target{claudeCode(), openCode(), codex(), crush(), grok(), hermes(), pi(), omarchyWidget(), embeddings()}
 }
 
 func claudeCode() Target {
@@ -42,12 +42,20 @@ func claudeCode() Target {
 	}
 }
 
-// claudeHook leaves exactly one membraid SessionStart hook pointing at the
-// installed binary: an older one is updated in place, duplicates are removed,
-// and hooks that are not membraid's are not touched.
 func claudeHook(e *Env) error {
-	command := e.Bin + " context --format claude 2>/dev/null || true"
-	return editJSON(e.path(".claude", "settings.json"), func(doc map[string]any) bool {
+	return sessionStartHook(e.path(".claude", "settings.json"), map[string]any{
+		"type": "command", "command": e.Bin + " context --format claude 2>/dev/null || true", "timeout": 10,
+		"statusMessage": "Loading membraid memory",
+	})
+}
+
+// sessionStartHook leaves exactly one membraid SessionStart hook in a Claude
+// Code style hooks file, pointing at the installed binary: an older one is
+// updated in place, duplicates are removed, and hooks that are not membraid's
+// are not touched. want is the whole hook entry; its command identifies it.
+func sessionStartHook(path string, want map[string]any) error {
+	command, _ := want["command"].(string)
+	return editJSON(path, func(doc map[string]any) bool {
 		hooks, _ := doc["hooks"].(map[string]any)
 		if hooks == nil {
 			hooks = map[string]any{}
@@ -87,10 +95,7 @@ func claudeHook(e *Env) error {
 			kept = append(kept, group)
 		}
 		if !found {
-			kept = append(kept, map[string]any{"hooks": []any{map[string]any{
-				"type": "command", "command": command, "timeout": 10,
-				"statusMessage": "Loading membraid memory",
-			}}})
+			kept = append(kept, map[string]any{"hooks": []any{want}})
 			changed = true
 		}
 		hooks["SessionStart"] = kept

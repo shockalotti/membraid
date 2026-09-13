@@ -98,6 +98,7 @@ func run(args []string) error {
 	quiet := fs.Bool("quiet", false, "no output on success")
 	format := fs.String("format", "text", "context output: text, or claude (a SessionStart hook payload)")
 	explain := fs.Bool("explain", false, "context: show why each memory was chosen")
+	digestFlag := fs.Bool("digest", false, "mcp: add the session digest to the server instructions")
 	harness := fs.String("harness", "", "install: comma-separated harness ids, instead of asking")
 	yes := fs.Bool("yes", false, "install: do not ask for confirmation")
 	dryRun := fs.Bool("dry-run", false, "install: show the plan and change nothing")
@@ -574,7 +575,7 @@ func run(args []string) error {
 		return runInstall(v, *harness, *yes, *dryRun, *binFlag)
 
 	case "mcp":
-		return runMCP(v, cfg, *source)
+		return runMCP(v, cfg, *source, *digestFlag)
 
 	case "where":
 		fmt.Printf("vault   %s\n", v.Root())

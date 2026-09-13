@@ -48,6 +48,8 @@ type mcpServer struct {
 	cfg    config.Config
 	ix     *index.Index
 	source string
+	// digest adds the session digest to the server instructions (--digest).
+	digest bool
 	out    *json.Encoder
 	// session identifies this server process in every write, so distillation
 	// can tell a subject restated across sessions from one written twice in one.
@@ -64,14 +66,14 @@ type mcpServer struct {
 	embedding atomic.Bool
 }
 
-func runMCP(v *vault.Vault, cfg config.Config, source string) error {
+func runMCP(v *vault.Vault, cfg config.Config, source string, digest bool) error {
 	ix, closeIx, err := openIndex(v, cfg)
 	if err != nil {
 		return err
 	}
 	defer closeIx()
 
-	s := &mcpServer{v: v, cfg: cfg, ix: ix, source: source, out: json.NewEncoder(os.Stdout), session: "s-" + index.NewID()[:12]}
+	s := &mcpServer{v: v, cfg: cfg, ix: ix, source: source, digest: digest, out: json.NewEncoder(os.Stdout), session: "s-" + index.NewID()[:12]}
 	if e, err := newEmbedder(cfg); err != nil {
 		fmt.Fprintln(os.Stderr, "membraid: embeddings unavailable, searching by keywords:", err)
 	} else if e != nil {
@@ -230,7 +232,7 @@ func (s *mcpServer) dispatch(req rpcRequest) {
 			"protocolVersion": p.ProtocolVersion,
 			"capabilities":    map[string]any{"tools": map[string]any{}},
 			"serverInfo":      map[string]any{"name": "membraid", "version": "0.3.0"},
-			"instructions":    serverInstructions,
+			"instructions":    s.instructions(),
 		})
 	case "notifications/initialized", "initialized":
 	case "tools/list":
@@ -266,6 +268,25 @@ func (s *mcpServer) text(id json.RawMessage, body string, isError bool) {
 		"content": []map[string]any{{"type": "text", "text": body}},
 		"isError": isError,
 	})
+}
+
+// instructions are serverInstructions, followed by the session digest for the
+// working directory's project when the server was started with --digest. That
+// is for harnesses whose only way into the system prompt is MCP server
+// instructions: Crush, and membraid's Pi extension. Any failure leaves the
+// digest out, never the server.
+func (s *mcpServer) instructions() string {
+	if !s.digest {
+		return serverInstructions
+	}
+	if _, err := s.ix.ImportAll(); err != nil {
+		fmt.Fprintf(os.Stderr, "membraid: import: %v\n", err)
+	}
+	text, err := buildContext(s.ix, scope.Resolve(""), scope.Name(""))
+	if err != nil || strings.TrimSpace(text) == "" {
+		return serverInstructions
+	}
+	return serverInstructions + "\n\n" + strings.TrimSpace(text)
 }
 
 // serverInstructions is returned in the MCP initialize result, which harnesses
@@ -356,6 +377,8 @@ func toolDefs() []map[string]any {
 		},
 		{
 			"name": "memory_search",
+			// Read-only tools can run without asking in harnesses that gate the rest (Codex).
+			"annotations": map[string]any{"readOnlyHint": true},
 			"description": "Search memory before assuming you do not know something. Returns current answers " +
 				"from this project plus anything marked shared. Worth calling at the start of a task. " +
 				"It matches words, not meaning: if the results miss, try other words, or memory_get the likely key.",
@@ -371,6 +394,7 @@ func toolDefs() []map[string]any {
 		},
 		{
 			"name":        "memory_get",
+			"annotations": map[string]any{"readOnlyHint": true},
 			"description": "The current answer for one subject key, across all kinds. The cheapest way to check a specific fact, e.g. deploy.target.",
 			"inputSchema": map[string]any{
 				"type":       "object",

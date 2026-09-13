@@ -32,8 +32,11 @@ membraid is one brain behind all of them.
 |---|---|---|---|
 | Claude Code | yes | yes | yes |
 | OpenCode | yes | yes | yes |
+| Codex | yes | yes (a `SessionStart` hook you trust once with `/hooks`) | yes |
+| Crush | yes | yes (in the MCP server instructions) | yes |
 | Grok | yes | yes, from a terminal (a `grok` shell function; bash and zsh) | yes |
 | Hermes | yes | yes | yes |
+| Pi | through a Pi extension (Pi has no MCP) | yes | yes |
 | Anything else | any MCP stdio client: `membraid mcp --source NAME` | | |
 | Scripts, cron | the `membraid` CLI | | |
 
