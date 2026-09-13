@@ -96,7 +96,7 @@ func run(args []string) error {
 	id := fs.String("id", "", "row id, for done")
 	scheduled := fs.Bool("scheduled", false, "sync only if due (for the timer)")
 	quiet := fs.Bool("quiet", false, "no output on success")
-	format := fs.String("format", "text", "context output: text, or claude (a SessionStart hook payload)")
+	format := fs.String("format", "text", "context output: text, claude (a SessionStart hook payload), or copilot (a sessionStart hook payload with the server instructions)")
 	explain := fs.Bool("explain", false, "context: show why each memory was chosen")
 	digestFlag := fs.Bool("digest", false, "mcp: add the session digest to the server instructions")
 	harness := fs.String("harness", "", "install: comma-separated harness ids, instead of asking")
@@ -412,6 +412,13 @@ func run(args []string) error {
 			}
 			return err
 		})
+		if *format == "copilot" {
+			// Copilot CLI leaves out the instructions of MCP servers it has not
+			// allowlisted, so its hook carries them along with the digest.
+			return json.NewEncoder(os.Stdout).Encode(map[string]any{
+				"additionalContext": strings.TrimSpace(serverInstructions + "\n\n" + text),
+			})
+		}
 		if *format == "claude" {
 			return json.NewEncoder(os.Stdout).Encode(map[string]any{
 				"hookSpecificOutput": map[string]any{

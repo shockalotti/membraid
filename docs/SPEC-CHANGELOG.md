@@ -8,6 +8,30 @@ next agent in the loop.
 
 ---
 
+## v1.15.4 (implementation amendments: Gemini CLI and Copilot CLI)
+
+**Gemini CLI takes the digest the way Crush does.** `gemini mcp add -s user`
+registers the server with `--digest`; Gemini places server instructions in the
+system context, in trusted folders only, which is also the only place it runs
+user MCP servers. Its `SessionStart` hook was rejected: plain stdout does not
+reach the model, and after `/clear` the context is not added again. The skill
+is the shared `~/.agents/skills` copy.
+
+**Copilot CLI needs the instructions carried by a hook.** Copilot includes MCP
+server instructions only for servers on a built-in allowlist, unless every run
+passes `--allow-all-mcp-server-instructions`, so the habits in the server
+instructions never reached it. `membraid context --format copilot` prints
+`{"additionalContext": ...}` holding the server instructions followed by the
+digest, run by a `sessionStart` hook in `~/.copilot/hooks/membraid.json`. The
+server goes in `~/.copilot/mcp-config.json`; the skill is the `~/.agents/skills`
+copy.
+
+**Both verified with real sessions** against a throwaway vault: each stated a
+fact only the digest held before calling any tool, then wrote and searched
+through membraid.
+
+---
+
 ## v1.15.3 (implementation amendments: Codex, Crush and Pi)
 
 **§14 wiring reaches three more harnesses, each through what it actually

@@ -1,6 +1,7 @@
 package install
 
 import (
+	"encoding/json"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -74,6 +75,63 @@ func tomlSection(path, name string) (string, bool) {
 	return section, true
 }
 
+func copilot() Target {
+	return Target{
+		ID: "copilot", Name: "GitHub Copilot CLI",
+		Detect: func(e *Env) bool { return e.has("copilot", ".copilot") },
+		Notes: []string{
+			"Copilot CLI puts only allowlisted MCP servers' instructions in the prompt, so its sessionStart hook brings membraid's instructions along with the digest.",
+			"Copilot CLI reads skills from ~/.agents/skills, so it shares that copy. If you set COPILOT_HOME, Copilot stops reading ~/.agents/skills and the skill will not load.",
+		},
+		Steps: func(e *Env) []Step {
+			return []Step{
+				{Desc: "MCP server " + ServerName + " in ~/.copilot/mcp-config.json", Apply: func(e *Env) error {
+					return editJSON(e.path(".copilot", "mcp-config.json"), func(doc map[string]any) bool {
+						servers, _ := doc["mcpServers"].(map[string]any)
+						if servers == nil {
+							servers = map[string]any{}
+						}
+						changed := migrateLegacy(servers)
+						want := map[string]any{"type": "local", "command": e.Bin, "args": []any{"mcp", "--source", "copilot"}, "tools": []any{"*"}}
+						if !sameJSON(servers[ServerName], want) {
+							servers[ServerName] = want
+							changed = true
+						}
+						doc["mcpServers"] = servers
+						return changed
+					})
+				}},
+				{Desc: "instructions and session digest: sessionStart hook at ~/.copilot/hooks/membraid.json", Apply: func(e *Env) error {
+					return writeOwnedJSON(e.path(".copilot", "hooks", "membraid.json"), map[string]any{
+						"version": 1,
+						"hooks": map[string]any{"sessionStart": []any{map[string]any{
+							"type": "command", "bash": e.Bin + " context --format copilot 2>/dev/null || true", "timeoutSec": 10,
+						}}},
+					})
+				}},
+				skillStep(filepath.Join(".agents", "skills", "membraid", "SKILL.md")),
+			}
+		},
+	}
+}
+
+// writeOwnedJSON writes a file membraid owns outright, such as its own hook
+// file, skipping the write when it already holds exactly that content.
+func writeOwnedJSON(path string, v any) error {
+	b, err := json.MarshalIndent(v, "", "  ")
+	if err != nil {
+		return err
+	}
+	b = append(b, '\n')
+	if cur, err := os.ReadFile(path); err == nil && string(cur) == string(b) {
+		return nil
+	}
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+		return err
+	}
+	return os.WriteFile(path, b, 0o644)
+}
+
 func crush() Target {
 	return Target{
 		ID: "crush", Name: "Crush",
@@ -115,6 +173,48 @@ func crush() Target {
 			}
 		},
 	}
+}
+
+func gemini() Target {
+	return Target{
+		ID: "gemini", Name: "Gemini CLI",
+		Detect: func(e *Env) bool { return e.has("gemini", ".gemini") },
+		Notes: []string{
+			"Gemini CLI runs user MCP servers only in folders you trust, and asks the first time you open one. The digest comes with membraid's server instructions (--digest), so it follows the same rule.",
+			"Gemini CLI reads skills from ~/.agents/skills, so it shares that copy; a second copy in ~/.gemini/skills would draw a conflict warning.",
+		},
+		Steps: func(e *Env) []Step {
+			return []Step{
+				{Desc: "MCP server " + ServerName + ", with the session digest, via gemini mcp add (user scope)", Apply: geminiServer},
+				skillStep(filepath.Join(".agents", "skills", "membraid", "SKILL.md")),
+			}
+		},
+	}
+}
+
+// geminiServer goes through Gemini CLI's own command, which owns settings.json.
+// Its add replaces an entry whole, so an entry already running this binary with
+// these args is left alone, keeping anything the user added to it, like trust.
+func geminiServer(e *Env) error {
+	var doc struct {
+		MCPServers map[string]any `json:"mcpServers"`
+	}
+	if raw, err := os.ReadFile(e.path(".gemini", "settings.json")); err == nil {
+		_ = json.Unmarshal(raw, &doc)
+	}
+	if entry, ok := doc.MCPServers[legacyName]; ok && ours(entry) {
+		if out, err := e.Run("", "gemini", "mcp", "remove", "-s", "user", legacyName); err != nil {
+			return fmt.Errorf("gemini mcp remove %s: %v: %s", legacyName, err, lastLine(out))
+		}
+	}
+	args := []string{"mcp", "--source", "gemini", "--digest"}
+	if m, ok := doc.MCPServers[ServerName].(map[string]any); ok && m["command"] == e.Bin && sameJSON(m["args"], args) {
+		return nil
+	}
+	if out, err := e.Run("", "gemini", append([]string{"mcp", "add", "-s", "user", ServerName, e.Bin}, args...)...); err != nil {
+		return fmt.Errorf("gemini mcp add: %v: %s", err, lastLine(out))
+	}
+	return nil
 }
 
 func pi() Target {

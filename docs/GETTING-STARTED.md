@@ -17,10 +17,12 @@ machine already ticked, shows exactly what it will change, then does it:
 | Claude Code | `~/.claude.json` | `SessionStart` hook | `~/.claude/skills/membraid` |
 | OpenCode | `opencode.json` | plugin | shares the Claude copy |
 | Codex | `codex mcp add` | `SessionStart` hook in `~/.codex/hooks.json` | `~/.agents/skills/membraid` |
+| Copilot CLI | `~/.copilot/mcp-config.json` | `sessionStart` hook in `~/.copilot/hooks/membraid.json` | shares the `~/.agents` copy |
 | Crush | `~/.config/crush/crush.json` | in the MCP server instructions | shares the Claude copy |
+| Gemini CLI | `gemini mcp add` | in the MCP server instructions | shares the `~/.agents` copy |
 | Grok | `grok mcp add` | `grok()` function in `~/.bashrc` or `~/.zshrc` | shares the Claude copy |
 | Hermes | `hermes mcp add` | plugin | `~/.hermes/skills/membraid` |
-| Pi | extension (Pi has no MCP) | the same extension | shares the Codex copy |
+| Pi | extension (Pi has no MCP) | the same extension | shares the `~/.agents` copy |
 | Omarchy bar widget | | | |
 | Sync timer (systemd) | | | |
 
@@ -274,10 +276,19 @@ membraid context        # see exactly what an agent starts with
 - **Codex** - a `SessionStart` hook in `~/.codex/hooks.json`. Codex runs a new
   or changed hook only after you trust it: start Codex, run `/hooks` and trust
   membraid's. Until then sessions start without the digest.
+- **Copilot CLI** - a `sessionStart` hook in `~/.copilot/hooks/membraid.json`
+  that runs `membraid context --format copilot`. Copilot leaves out the
+  instructions of MCP servers it has not allowlisted, so this payload carries
+  membraid's instructions (when to write, keys, no secrets) with the digest.
 - **Crush** - Crush has no session-start hook, but it puts each MCP server's
   instructions in the system prompt, so `install` starts the server with
   `membraid mcp --digest`, which adds the digest to those instructions. It is
   built when Crush starts the server, for the directory Crush runs in.
+- **Gemini CLI** - like Crush, the digest comes with the server instructions
+  (`--digest`). Gemini runs user MCP servers only in folders you trust, and asks
+  the first time you open one; in an untrusted folder it gets neither the tools
+  nor the digest. A `SessionStart` hook was the alternative, but Gemini does not
+  add its context again after `/clear`.
 - **Hermes** - a plugin that adds the digest to the first turn.
 - **Pi** - Pi has no MCP support by design, so `install` adds an extension at
   `~/.pi/agent/extensions/membraid.ts`. It starts `membraid mcp --digest` for
@@ -350,7 +361,8 @@ tasks per other project. It is chosen by **recency, not relevance**: it does not
 know what you are about to ask. Claude Code gets it from the `SessionStart`
 hook, OpenCode from its plugin (re-attached to every request, but the same text
 all session), Hermes from its plugin on the first turn, Codex from its `SessionStart` hook,
-Crush and Pi with the MCP server instructions, and Grok through `--rules`.
+Copilot from its `sessionStart` hook, Crush, Gemini and Pi with the MCP server
+instructions, and Grok through `--rules`.
 
 **During a conversation nothing is injected.** Memory enters the context only
 when the agent calls a tool: `memory_search` returns up to 10 hits, one line

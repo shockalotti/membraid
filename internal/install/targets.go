@@ -10,7 +10,7 @@ import (
 
 // Targets is every harness install knows, in the order it offers them.
 func Targets() []Target {
-	return []Target{claudeCode(), openCode(), codex(), crush(), grok(), hermes(), pi(), omarchyWidget(), embeddings()}
+	return []Target{claudeCode(), openCode(), codex(), copilot(), crush(), gemini(), grok(), hermes(), pi(), omarchyWidget(), embeddings()}
 }
 
 func claudeCode() Target {

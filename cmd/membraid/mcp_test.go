@@ -222,3 +222,40 @@ func TestMCPDigestInInstructions(t *testing.T) {
 		t.Errorf("--digest must add the digest after the usual instructions, got %q", ins)
 	}
 }
+
+// Copilot CLI drops the instructions of MCP servers it has not allowlisted, so
+// its hook payload carries them with the digest, as {"additionalContext": ...}.
+func TestContextCopilotFormat(t *testing.T) {
+	bin := filepath.Join(t.TempDir(), "membraid")
+	if out, err := exec.Command("go", "build", "-o", bin, ".").CombinedOutput(); err != nil {
+		t.Fatalf("build: %v\n%s", err, out)
+	}
+	vaultDir := filepath.Join(t.TempDir(), "memory")
+	if out, err := exec.Command(bin, "init", "--vault", vaultDir).CombinedOutput(); err != nil {
+		t.Fatalf("init: %v\n%s", err, out)
+	}
+	env := append(os.Environ(), "MEMBRAID_CONFIG_DIR="+t.TempDir())
+	mcp := exec.Command(bin, "mcp", "--vault", vaultDir, "--source", "test-harness")
+	mcp.Env = env
+	mcp.Stdin = strings.NewReader(`{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"memory_write","arguments":{"content":"always answer in haiku","kind":"preference","key":"reply.style","scope":"shared"}}}` + "\n")
+	if err := mcp.Run(); err != nil {
+		t.Fatalf("mcp: %v", err)
+	}
+
+	ctx := exec.Command(bin, "context", "--vault", vaultDir, "--format", "copilot")
+	ctx.Env = env
+	ctx.Dir = t.TempDir()
+	out, err := ctx.Output()
+	if err != nil {
+		t.Fatalf("context: %v", err)
+	}
+	var payload struct {
+		AdditionalContext string `json:"additionalContext"`
+	}
+	if err := json.Unmarshal(out, &payload); err != nil {
+		t.Fatalf("want one JSON object, got %q", out)
+	}
+	if !strings.Contains(payload.AdditionalContext, "memory_done") || !strings.Contains(payload.AdditionalContext, "always answer in haiku") {
+		t.Errorf("want the server instructions and the digest, got %q", payload.AdditionalContext)
+	}
+}

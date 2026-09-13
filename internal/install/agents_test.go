@@ -111,3 +111,66 @@ func TestPi(t *testing.T) {
 		t.Error("Pi reads skills from ~/.agents/skills")
 	}
 }
+
+func TestGeminiMigratesThroughItsCLI(t *testing.T) {
+	e, r := newEnv(t)
+	write(t, e.path(".gemini", "settings.json"), `{"security": {"auth": {"selectedType": "oauth-personal"}}, "mcpServers": {"memory": {"command": "/home/x/go/bin/membraid", "args": ["mcp"]}}}`)
+	apply(t, e, "gemini")
+	want := []string{
+		"|gemini mcp remove -s user memory",
+		"|gemini mcp add -s user membraid " + bin + " mcp --source gemini --digest",
+	}
+	if strings.Join(r.calls, "\n") != strings.Join(want, "\n") {
+		t.Errorf("calls:\n%s\nwant:\n%s", strings.Join(r.calls, "\n"), strings.Join(want, "\n"))
+	}
+	if got, _ := os.ReadFile(e.path(".agents", "skills", "membraid", "SKILL.md")); string(got) != skill(t) {
+		t.Error("Gemini CLI reads skills from ~/.agents/skills")
+	}
+	if _, err := os.Stat(e.path(".gemini", "skills", "membraid")); err == nil {
+		t.Error("a ~/.gemini/skills copy conflicts with the ~/.agents/skills one")
+	}
+}
+
+// Gemini's add replaces an entry whole, so a current one, perhaps trusted by
+// the user, is not re-added.
+func TestGeminiCurrentServerIsLeftAlone(t *testing.T) {
+	e, r := newEnv(t)
+	write(t, e.path(".gemini", "settings.json"), `{"mcpServers": {"membraid": {"command": "`+bin+`", "args": ["mcp", "--source", "gemini", "--digest"], "trust": true}}}`)
+	apply(t, e, "gemini")
+	if len(r.calls) != 0 {
+		t.Errorf("a current entry needs no CLI calls, got %q", r.calls)
+	}
+}
+
+func TestCopilot(t *testing.T) {
+	e, _ := newEnv(t)
+	cfg := e.path(".copilot", "mcp-config.json")
+	write(t, cfg, `{"mcpServers": {"github": {"type": "http", "url": "https://example.test"}, "memory": {"type": "local", "command": "/home/x/go/bin/membraid", "args": ["mcp"]}}}`)
+	apply(t, e, "copilot")
+
+	servers := readJSON(t, cfg)["mcpServers"].(map[string]any)
+	if _, ok := servers["github"]; !ok {
+		t.Error("other servers must survive")
+	}
+	if _, ok := servers["memory"]; ok {
+		t.Error("legacy entry must be migrated")
+	}
+	m := servers["membraid"].(map[string]any)
+	if m["type"] != "local" || m["command"] != bin || strings.Join(toStrings(m["args"]), " ") != "mcp --source copilot" {
+		t.Errorf("membraid entry wrong: %v", m)
+	}
+	hook := readJSON(t, e.path(".copilot", "hooks", "membraid.json"))
+	start := hook["hooks"].(map[string]any)["sessionStart"].([]any)[0].(map[string]any)
+	if hook["version"] != float64(1) || start["bash"] != bin+" context --format copilot 2>/dev/null || true" {
+		t.Errorf("hook wrong: %v", hook)
+	}
+	if got, _ := os.ReadFile(e.path(".agents", "skills", "membraid", "SKILL.md")); string(got) != skill(t) {
+		t.Error("Copilot CLI reads skills from ~/.agents/skills")
+	}
+
+	before, _ := os.ReadFile(cfg)
+	apply(t, e, "copilot")
+	if after, _ := os.ReadFile(cfg); string(after) != string(before) {
+		t.Error("a second install must change nothing")
+	}
+}
