@@ -16,7 +16,8 @@ func Targets() []Target {
 func claudeCode() Target {
 	return Target{
 		ID: "claude-code", Name: "Claude Code",
-		Detect: func(e *Env) bool { return e.has("claude", ".claude") },
+		Detect:     func(e *Env) bool { return e.has("claude", ".claude") },
+		Configured: func(e *Env) bool { return jsonHas(e.path(".claude.json"), "mcpServers", ServerName) },
 		Steps: func(e *Env) []Step {
 			return []Step{
 				{Desc: "MCP server " + ServerName + " in ~/.claude.json", Apply: func(e *Env) error {
@@ -107,8 +108,9 @@ func sessionStartHook(path string, want map[string]any) error {
 func openCode() Target {
 	return Target{
 		ID: "opencode", Name: "OpenCode",
-		Detect: func(e *Env) bool { return e.has("opencode", filepath.Join(".config", "opencode")) },
-		Notes:  []string{"OpenCode reads skills from ~/.claude/skills, so the skill is installed there."},
+		Detect:     func(e *Env) bool { return e.has("opencode", filepath.Join(".config", "opencode")) },
+		Configured: func(e *Env) bool { return jsonHas(e.path(".config", "opencode", "opencode.json"), "mcp", ServerName) },
+		Notes:      []string{"OpenCode reads skills from ~/.claude/skills, so the skill is installed there."},
 		Steps: func(e *Env) []Step {
 			dir := e.path(".config", "opencode")
 			return []Step{
@@ -155,6 +157,10 @@ func grok() Target {
 	return Target{
 		ID: "grok", Name: "Grok",
 		Detect: func(e *Env) bool { return e.has("grok", ".grok") },
+		Configured: func(e *Env) bool {
+			_, ok := tomlSection(e.path(".grok", "config.toml"), "mcp_servers."+ServerName)
+			return ok
+		},
 		Notes: []string{
 			"Grok ignores SessionStart hook output, so its session digest comes from a grok() function in ~/.bashrc or ~/.zshrc that passes it as --rules. It reaches grok started from a terminal; with another shell (fish, PowerShell) grok gets the MCP server and skill but no digest.",
 			"Grok reads ~/.claude/skills, so it shares that copy of the skill; a second copy in ~/.grok/skills would collide with it.",
@@ -207,6 +213,12 @@ func hermes() Target {
 	return Target{
 		ID: "hermes", Name: "Hermes",
 		Detect: func(e *Env) bool { return e.has("hermes", ".hermes") },
+		Configured: func(e *Env) bool {
+			doc, _ := readYAMLMap(e.path(".hermes", "config.yaml"))
+			s, _ := doc["mcp_servers"].(map[string]any)
+			_, ok := s[ServerName]
+			return ok
+		},
 		Steps: func(e *Env) []Step {
 			pluginDir := e.path(".hermes", "plugins", "membraid")
 			return []Step{
@@ -296,7 +308,8 @@ func omarchyWidget() Target {
 	const id = "shockalotti.membraid"
 	return Target{
 		ID: "omarchy-widget", Name: "Omarchy bar widget",
-		Detect: func(e *Env) bool { _, err := e.LookPath("omarchy"); return err == nil },
+		Detect:     func(e *Env) bool { _, err := e.LookPath("omarchy"); return err == nil },
+		Configured: func(e *Env) bool { return exists(e.path(".config", "omarchy", "plugins", id)) },
 		Steps: func(e *Env) []Step {
 			dir := e.path(".config", "omarchy", "plugins", id)
 			return []Step{

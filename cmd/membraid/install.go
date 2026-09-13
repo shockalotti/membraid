@@ -2,6 +2,7 @@ package main
 
 import (
 	"bufio"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
@@ -22,8 +23,10 @@ import (
 type choice struct {
 	id, name string
 	detected bool
-	notes    []string
-	apply    func(dryRun bool) error
+	// configured is nil when install cannot tell whether membraid is set up.
+	configured *bool
+	notes      []string
+	apply      func(dryRun bool) error
 }
 
 var stdin = bufio.NewReader(os.Stdin)
@@ -32,7 +35,7 @@ var stdin = bufio.NewReader(os.Stdin)
 // (defaulting to the ones found on this machine), shows exactly what will
 // change, and applies it. Safe to run again after upgrading or moving the
 // binary: every step converges rather than duplicating.
-func runInstall(v *vault.Vault, harnessFlag string, yes, dryRun bool, binFlag string) error {
+func runInstall(v *vault.Vault, harnessFlag string, yes, dryRun bool, binFlag string, list bool) error {
 	bin, err := installedBinary(binFlag)
 	if err != nil {
 		return err
@@ -45,8 +48,13 @@ func runInstall(v *vault.Vault, harnessFlag string, yes, dryRun bool, binFlag st
 	var choices []choice
 	for _, t := range install.Targets() {
 		t := t
+		var configured *bool
+		if t.Configured != nil {
+			c := t.Configured(env)
+			configured = &c
+		}
 		choices = append(choices, choice{
-			id: t.ID, name: t.Name, detected: t.Detect(env), notes: t.Notes,
+			id: t.ID, name: t.Name, detected: t.Detect(env), notes: t.Notes, configured: configured,
 			apply: func(dry bool) error {
 				e := *env
 				e.DryRun = dry
@@ -59,8 +67,9 @@ func runInstall(v *vault.Vault, harnessFlag string, yes, dryRun bool, binFlag st
 	}
 	if runtime.GOOS == "linux" {
 		if _, err := exec.LookPath("systemctl"); err == nil {
+			timerSet := timerInstalled()
 			choices = append(choices, choice{
-				id: "sync-timer", name: "Sync timer (systemd, every 5 minutes)", detected: true,
+				id: "sync-timer", name: "Sync timer (systemd, every 5 minutes)", detected: true, configured: &timerSet,
 				apply: func(dry bool) error {
 					if dry {
 						fmt.Println("  - systemd user timer membraid-sync.timer")
@@ -70,6 +79,16 @@ func runInstall(v *vault.Vault, harnessFlag string, yes, dryRun bool, binFlag st
 				},
 			})
 		}
+	}
+
+	// --list is for the bar widget: which harnesses exist here, and which
+	// already have membraid, without asking or changing anything.
+	if list {
+		out := []map[string]any{}
+		for _, c := range choices {
+			out = append(out, map[string]any{"id": c.id, "name": c.name, "detected": c.detected, "configured": c.configured})
+		}
+		return json.NewEncoder(os.Stdout).Encode(out)
 	}
 
 	selected := make([]bool, len(choices))
@@ -288,4 +307,14 @@ func quietly(fn func() error) error {
 	os.Stdout = devnull
 	defer func() { os.Stdout = saved; devnull.Close() }()
 	return fn()
+}
+
+// timerInstalled reports whether the systemd user timer unit is in place.
+func timerInstalled() bool {
+	home, err := os.UserHomeDir()
+	if err != nil {
+		return false
+	}
+	_, err = os.Stat(filepath.Join(home, ".config", "systemd", "user", "membraid-sync.timer"))
+	return err == nil
 }

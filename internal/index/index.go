@@ -681,6 +681,8 @@ type Hit struct {
 	// ScopeName is the readable project name, filled in by callers that show
 	// more than one project at once. An id like g0c59d778 means nothing to read.
 	ScopeName string `json:"scope_name,omitempty"`
+	// Concept is the vault note distilled from this memory, when there is one.
+	Concept string `json:"concept,omitempty"`
 }
 
 // Recent returns the newest current rows: what the agents have been learning.

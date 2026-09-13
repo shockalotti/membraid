@@ -84,8 +84,11 @@ type Target struct {
 	ID     string
 	Name   string
 	Detect func(*Env) bool
-	Notes  []string
-	Steps  func(*Env) []Step
+	// Configured reports whether membraid is already set up here. Nil means
+	// install cannot tell.
+	Configured func(*Env) bool
+	Notes      []string
+	Steps      func(*Env) []Step
 }
 
 type Step struct {
@@ -201,6 +204,34 @@ func pointAt(placeholder, value string) func(string) (string, error) {
 		}
 		return strings.ReplaceAll(s, placeholder, value), nil
 	}
+}
+
+// jsonHas reports whether a JSON file holds a value at the given object path,
+// e.g. mcpServers, membraid.
+func jsonHas(path string, keys ...string) bool {
+	raw, err := os.ReadFile(path)
+	if err != nil {
+		return false
+	}
+	var doc any
+	if json.Unmarshal(raw, &doc) != nil {
+		return false
+	}
+	for _, k := range keys {
+		m, ok := doc.(map[string]any)
+		if !ok {
+			return false
+		}
+		if doc, ok = m[k]; !ok {
+			return false
+		}
+	}
+	return true
+}
+
+func exists(path string) bool {
+	_, err := os.Stat(path)
+	return err == nil
 }
 
 func sameJSON(a, b any) bool {

@@ -18,6 +18,7 @@ import (
 
 	"github.com/shockalotti/membraid/internal/config"
 	"github.com/shockalotti/membraid/internal/distill"
+	"github.com/shockalotti/membraid/internal/embed"
 	"github.com/shockalotti/membraid/internal/index"
 	"github.com/shockalotti/membraid/internal/scope"
 	"github.com/shockalotti/membraid/internal/vault"
@@ -50,6 +51,9 @@ Usage:
   membraid mcp --source NAME             run as an MCP server (stdio)
   membraid install [--dry-run]           set membraid up in your agent harnesses
   membraid version [--json]              which release this is
+  membraid projects [--json] | prune     every project, and forgetting empty ones
+  membraid memories [--json] [filters]   browse current memories (--scope, --kind, --source, -n)
+  membraid insights [--json] [--days N]  how memory is being used
   membraid update [--check]              replace this binary with the latest release
 
 Write flags:
@@ -107,9 +111,17 @@ func run(args []string) error {
 	binFlag := fs.String("bin", "", "install: binary path harness configs should use")
 	check := fs.Bool("check", false, "update: only report whether a newer release exists")
 	releaseTag := fs.String("version", "", "update: install this release (e.g. v0.4.0) instead of the latest")
+	replaces := fs.String("replaces", "", "write: the id of a memory this one corrects, which is retired")
+	noTrack := fs.Bool("no-track", false, "search: a person browsing, so results are not counted as used")
+	days := fs.Int("days", 7, "insights: how many days to look back")
+	list := fs.Bool("list", false, "install: list harnesses and whether membraid is set up in each, as JSON")
 	if err := fs.Parse(permute(fs, rest)); err != nil {
 		return err
 	}
+	// Some flags have defaults for writing (kind insight, source cli) but filter
+	// when listing, where only a value the user actually gave should count.
+	given := map[string]bool{}
+	fs.Visit(func(f *flag.Flag) { given[f.Name] = true })
 
 	cfg, cerr := config.Load()
 	if cerr != nil {
@@ -173,6 +185,14 @@ func run(args []string) error {
 				fmt.Printf(" (replaced %d earlier answer%s)", n, plural(n))
 			}
 			fmt.Println()
+			// A correction to a memory without a key: the new statement cannot
+			// supersede the old one by key, so the old one is retired by id. One
+			// already superseded above has nothing left to retire.
+			if *replaces != "" && *replaces != res.ID && !contains(res.Superseded, *replaces) {
+				if _, err := ix.Forget("", "", *replaces); err != nil {
+					fmt.Fprintf(os.Stderr, "membraid: wrote the correction, but could not retire %s: %v\n", *replaces, err)
+				}
+			}
 			return nil
 		})
 
@@ -238,8 +258,13 @@ func run(args []string) error {
 			for i, h := range hits {
 				ids[i] = h.ID
 			}
-			_ = ix.Touch(ids)
+			if !*noTrack {
+				_ = ix.Touch(ids)
+			}
 			if *jsonOut {
+				if hits == nil {
+					hits = []index.Hit{}
+				}
 				return json.NewEncoder(os.Stdout).Encode(hits)
 			}
 			if len(hits) == 0 {
@@ -288,6 +313,99 @@ func run(args []string) error {
 			_ = ix.Touch(touched)
 			if !found {
 				fmt.Println("no answer for that subject")
+			}
+			return nil
+		})
+
+	case "projects":
+		return withIndex(v, cfg, func(ix *index.Index) error {
+			if fs.NArg() > 0 && fs.Arg(0) == "prune" {
+				n, err := ix.PruneScopes()
+				if err != nil {
+					return err
+				}
+				fmt.Printf("forgot %d project%s that never held a memory\n", n, plural(n))
+				return nil
+			}
+			list, err := ix.Projects()
+			if err != nil {
+				return err
+			}
+			if *jsonOut {
+				if list == nil {
+					list = []index.ProjectInfo{}
+				}
+				return json.NewEncoder(os.Stdout).Encode(list)
+			}
+			for _, p := range list {
+				note := ""
+				if p.Missing {
+					note = "  (folder missing)"
+				}
+				fmt.Printf("%-12s %-20s %4d memories %3d open  %-10s %s%s\n", p.Scope, p.Name, p.Memories, p.OpenTasks, day(p.LastWrite), p.Path, note)
+			}
+			return nil
+		})
+
+	case "insights":
+		return withIndex(v, cfg, func(ix *index.Index) error {
+			in, err := ix.Insights(*days)
+			if err != nil {
+				return err
+			}
+			names, _ := ix.ScopeNames()
+			for i := range in.RecentlyUsed {
+				in.RecentlyUsed[i].ScopeName = names[in.RecentlyUsed[i].Scope]
+			}
+			if *jsonOut {
+				return json.NewEncoder(os.Stdout).Encode(in)
+			}
+			total := 0
+			for _, d := range in.WritesByDay {
+				total += d.Count
+			}
+			fmt.Printf("last %d days: %d writes\n", in.Days, total)
+			for src, n := range in.WritesBySource {
+				fmt.Printf("  %-14s %d\n", src, n)
+			}
+			fmt.Printf("%d current memories, %d never used by an agent\n", in.Current, in.NeverUsed)
+			return nil
+		})
+
+	case "memories":
+		return withIndex(v, cfg, func(ix *index.Index) error {
+			sc := "*"
+			if given["scope"] {
+				sc = scope.Resolve(*scopeFlag)
+			}
+			k, src := "", ""
+			if given["kind"] {
+				k = *kind
+			}
+			if given["source"] {
+				src = *source
+			}
+			n := 50
+			if given["n"] {
+				n = *limit
+			}
+			hits, err := ix.Browse(sc, k, src, n)
+			if err != nil {
+				return err
+			}
+			names, _ := ix.ScopeNames()
+			for i := range hits {
+				if name, ok := names[hits[i].Scope]; ok {
+					hits[i].ScopeName = name
+				} else {
+					hits[i].ScopeName = hits[i].Scope
+				}
+			}
+			if *jsonOut {
+				return json.NewEncoder(os.Stdout).Encode(hits)
+			}
+			for _, h := range hits {
+				fmt.Printf("%-14s %-16s %-14s %s  [id %s]\n", h.Kind, dash(h.Key), h.ScopeName, h.Content, h.ID)
 			}
 			return nil
 		})
@@ -373,7 +491,7 @@ func run(args []string) error {
 					"scope": sc, "vault": v.Root(), "host": wirelog.SafeHost(cfg.HostName()),
 					"stats": st, "doing": doing, "learned": learned, "sync": syncInfo,
 					"search":      searchStatus(cfg, ix),
-					"stale_tasks": stale, "sweep": ix.LastSweep(),
+					"stale_tasks": stale, "sweep": ix.LastSweep(), "version": currentVersion(),
 				})
 			}
 			fmt.Printf("scope %s  -  %d current, %d total, %d projects\n", sc, st.Current, st.Total, st.Scopes)
@@ -567,6 +685,21 @@ func run(args []string) error {
 		})
 
 	case "config":
+		if fs.NArg() == 0 && *jsonOut {
+			model := cfg.EmbedModel
+			if model == "" {
+				model = embed.DefaultOllamaModel
+			}
+			embeddings := cfg.Embeddings
+			if embeddings == "" {
+				embeddings = "off"
+			}
+			return json.NewEncoder(os.Stdout).Encode(map[string]any{
+				"auto_sync": cfg.AutoSync, "push_delay_sec": cfg.PushDelaySec, "pull_interval_min": cfg.PullIntervalMin,
+				"halflife_days": cfg.HalflifeDays, "embeddings": embeddings, "embed_model": model,
+				"host": cfg.HostName(), "path": config.Path(),
+			})
+		}
 		if fs.NArg() == 0 {
 			buf, _ := json.MarshalIndent(cfg, "", "  ")
 			fmt.Printf("%s\n\n# %s\n", buf, config.Path())
@@ -592,7 +725,7 @@ func run(args []string) error {
 		return timerCmd(action, v)
 
 	case "install":
-		return runInstall(v, *harness, *yes, *dryRun, *binFlag)
+		return runInstall(v, *harness, *yes, *dryRun, *binFlag, *list)
 
 	case "mcp":
 		return runMCP(v, cfg, *source, *digestFlag)
@@ -1041,4 +1174,21 @@ func plural(n int) string {
 		return ""
 	}
 	return "s"
+}
+
+func contains(list []string, s string) bool {
+	for _, x := range list {
+		if x == s {
+			return true
+		}
+	}
+	return false
+}
+
+// day is the date part of a timestamp, or "-" when there is none.
+func day(ts string) string {
+	if len(ts) < 10 {
+		return "-"
+	}
+	return ts[:10]
 }

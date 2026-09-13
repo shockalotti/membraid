@@ -13,6 +13,10 @@ func codex() Target {
 	return Target{
 		ID: "codex", Name: "Codex",
 		Detect: func(e *Env) bool { return e.has("codex", ".codex") },
+		Configured: func(e *Env) bool {
+			_, ok := tomlSection(e.path(".codex", "config.toml"), "mcp_servers."+ServerName)
+			return ok
+		},
 		Notes: []string{
 			"Codex runs a new or changed hook only once you trust it: start Codex, run /hooks and trust membraid's SessionStart hook. Until then sessions start without the digest; the MCP server and skill work regardless.",
 			"Codex reads skills from ~/.agents/skills, not ~/.claude/skills, so it gets its own copy there.",
@@ -78,7 +82,8 @@ func tomlSection(path, name string) (string, bool) {
 func copilot() Target {
 	return Target{
 		ID: "copilot", Name: "GitHub Copilot CLI",
-		Detect: func(e *Env) bool { return e.has("copilot", ".copilot") },
+		Detect:     func(e *Env) bool { return e.has("copilot", ".copilot") },
+		Configured: func(e *Env) bool { return jsonHas(e.path(".copilot", "mcp-config.json"), "mcpServers", ServerName) },
 		Notes: []string{
 			"Copilot CLI puts only allowlisted MCP servers' instructions in the prompt, so its sessionStart hook brings membraid's instructions along with the digest.",
 			"Copilot CLI reads skills from ~/.agents/skills, so it shares that copy. If you set COPILOT_HOME, Copilot stops reading ~/.agents/skills and the skill will not load.",
@@ -135,7 +140,8 @@ func writeOwnedJSON(path string, v any) error {
 func crush() Target {
 	return Target{
 		ID: "crush", Name: "Crush",
-		Detect: func(e *Env) bool { return e.has("crush", filepath.Join(".config", "crush")) },
+		Detect:     func(e *Env) bool { return e.has("crush", filepath.Join(".config", "crush")) },
+		Configured: func(e *Env) bool { return jsonHas(e.path(".config", "crush", "crush.json"), "mcp", ServerName) },
 		Notes: []string{
 			"Crush has no session-start hook, but it puts MCP server instructions in the system prompt, so the server runs with --digest and the digest arrives with them when Crush starts.",
 			"Crush reads skills from ~/.claude/skills, so it shares that copy of the skill.",
@@ -178,7 +184,8 @@ func crush() Target {
 func cursor() Target {
 	return Target{
 		ID: "cursor", Name: "Cursor CLI",
-		Detect: func(e *Env) bool { return e.has("cursor-agent", ".cursor") },
+		Detect:     func(e *Env) bool { return e.has("cursor-agent", ".cursor") },
+		Configured: func(e *Env) bool { return jsonHas(e.path(".cursor", "mcp.json"), "mcpServers", ServerName) },
 		Notes: []string{
 			"The Cursor editor reads the same ~/.cursor/mcp.json and hooks.json, so it gets membraid too.",
 			"Cursor reads skills from both ~/.claude/skills and ~/.agents/skills and keeps copies with the same name apart, so where both exist it lists membraid twice (the second as membraid-2). Harmless: they are the same file.",
@@ -255,7 +262,8 @@ func cursorHook(e *Env) error {
 func gemini() Target {
 	return Target{
 		ID: "gemini", Name: "Gemini CLI",
-		Detect: func(e *Env) bool { return e.has("gemini", ".gemini") },
+		Detect:     func(e *Env) bool { return e.has("gemini", ".gemini") },
+		Configured: func(e *Env) bool { return jsonHas(e.path(".gemini", "settings.json"), "mcpServers", ServerName) },
 		Notes: []string{
 			"Gemini CLI runs user MCP servers only in folders you trust, and asks the first time you open one. The digest comes with membraid's server instructions (--digest), so it follows the same rule.",
 			"Gemini CLI reads skills from ~/.agents/skills, so it shares that copy; a second copy in ~/.gemini/skills would draw a conflict warning.",
@@ -297,7 +305,8 @@ func geminiServer(e *Env) error {
 func pi() Target {
 	return Target{
 		ID: "pi", Name: "Pi",
-		Detect: func(e *Env) bool { return e.has("pi", ".pi") },
+		Detect:     func(e *Env) bool { return e.has("pi", ".pi") },
+		Configured: func(e *Env) bool { return exists(e.path(".pi", "agent", "extensions", "membraid.ts")) },
 		Notes: []string{
 			"Pi has no MCP support, so a Pi extension runs membraid's MCP server for each session, registers its tools, and adds the digest to the system prompt.",
 			"Pi reads skills from ~/.agents/skills, not ~/.claude/skills, so it gets its own copy there, shared with Codex.",
