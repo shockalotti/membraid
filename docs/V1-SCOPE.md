@@ -113,7 +113,7 @@ decision now is to build them rather than wait. Agreed sequence:
 2. **8b** - retrieval tracking, decay in ranking, digest scoring (`membraid context --explain`), cross-machine retrieval checkpoints, and guidance for agents to rephrase a search that misses. **Done**
 3. **Hybrid search** (§16 M11) - pure Go vector search, embeddings optional ([SEARCH-EVALUATION.md](SEARCH-EVALUATION.md)). **done** - vector store, local embedders (Ollama EmbeddingGemma or built-in all-MiniLM), `membraid embed`, vector-only search with keyword fallback, installer option 
 4. **10** - sweep **Done**: `membraid sweep`, weekly from the sync timer: counts memories unused for 90+ days (left to fade, never deleted), flags open tasks untouched for 14+ days in the digest and status, checkpoints retrieval state, reports to log.md. Concept archival waits for distillation.
-5. **9** - distillation, kept for its readable per-subject markdown files
+5. **9** - distillation, kept for its readable per-subject markdown files **Done**: `membraid distill`, every 30 minutes from the sync timer: subjects written twice or in two sessions become readable draft notes with their history; a note a person edits is never overwritten. Unkeyed clustering waits.
 
 | # | Slice | SPEC ref |
 |---|---|---|

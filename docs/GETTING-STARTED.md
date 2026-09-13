@@ -104,6 +104,28 @@ Everything engine-owned lives in `.hot/`, which Obsidian hides: the wire log,
 and the index. `.hot/.gitignore` keeps the rebuildable index out of git while
 the log, which is history, stays in.
 
+## Readable notes
+
+Memories are lines in a log, which nobody wants to read. When agents come back
+to the same subject, writing its answer a second time or from a second
+session, membraid writes it up as a note you can open in any editor or in
+Obsidian:
+
+```
+preferences/pkg-manager.md
+projects/memory-engine/deploy-target.md
+```
+
+Each note is a `draft` holding the current answer and a History list of every
+earlier answer, with when and which agent wrote it. It happens every 30
+minutes on its own; `membraid distill` runs it now.
+
+**The notes are yours to edit.** membraid rewrites a note only while it is
+exactly what membraid last wrote. Once you change one (fix it, add to it, set
+`status: stable`, move it to another folder), it is never overwritten again,
+though new memories on the same subject are still linked to it. Your edits sync
+to your other machines like everything else in the vault.
+
 ## Moving projects around
 
 People move and rename directories constantly, so scope identity does not

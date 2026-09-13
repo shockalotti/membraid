@@ -574,6 +574,17 @@ does, and the protocol docs ask adapters not to.
   mutation handler that commits - the two can never drift. It stays because
   Obsidian cannot show git history; it is the human-facing view inside the app.
 
+> **Implementation note (v1.15.2, staging).** Sync stages the vault with
+> `git add -A`, not the exact paths the engine wrote. That departs from the
+> path-scoped rule above, deliberately: the rule protects a person who commits
+> their own vault, and v1 is built for people who never will. For them an
+> edited concept note should sync without a manual commit, and git keeps every
+> version, so a commit of a half-finished edit is corrected by the next one.
+> The blast radius is membraid's own repository: a vault placed in a subfolder
+> of a larger Obsidian vault is its own git repo, so notes outside it are never
+> staged. Distillation still never overwrites a file a person has edited (§8).
+> Revisit if people who curate by hand ask for path-scoped commits.
+
 ---
 
 ## 5. Hot Index (working set)

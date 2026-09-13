@@ -17,6 +17,7 @@ import (
 	"time"
 
 	"github.com/shockalotti/membraid/internal/config"
+	"github.com/shockalotti/membraid/internal/distill"
 	"github.com/shockalotti/membraid/internal/index"
 	"github.com/shockalotti/membraid/internal/scope"
 	"github.com/shockalotti/membraid/internal/vault"
@@ -39,6 +40,7 @@ Usage:
   membraid context --explain             the digest, and why each memory was chosen
   membraid embed                         make every memory searchable by meaning (embeddings on)
   membraid sweep [--json]                weekly upkeep: count what has gone unused, flag stale tasks
+  membraid distill [--json]              write readable notes for subjects agents keep coming back to
   membraid sync [--json]                 commit, pull, push, import - once
   membraid config [set KEY VALUE]        this machine's settings
   membraid timer install|remove|status   periodic sync via systemd (Linux)
@@ -460,11 +462,36 @@ func run(args []string) error {
 				fmt.Println(describeResult(res, imported))
 			}
 			embedAfterSync(cfg, ix, *quiet)
+			if *scheduled && ix.RunDue("distill", distillEvery) {
+				if r, err := runDistill(v, ix); err != nil {
+					fmt.Fprintln(os.Stderr, "membraid: distill:", err)
+				} else if len(r.Paths) > 0 && !*quiet {
+					fmt.Println(distillSummary(r))
+				}
+			}
 			if *scheduled && ix.SweepDue() {
 				if r, err := runSweep(v, ix); err != nil {
 					fmt.Fprintln(os.Stderr, "membraid: sweep:", err)
 				} else if !*quiet {
 					fmt.Println(sweepSummary(r))
+				}
+			}
+			return nil
+		})
+
+	case "distill":
+		return withIndex(v, cfg, func(ix *index.Index) error {
+			r, err := runDistill(v, ix)
+			if err != nil {
+				return err
+			}
+			if *jsonOut {
+				return json.NewEncoder(os.Stdout).Encode(r)
+			}
+			if !*quiet {
+				fmt.Println(distillSummary(r))
+				for _, p := range r.Paths {
+					fmt.Println("  " + p)
 				}
 			}
 			return nil
@@ -569,6 +596,37 @@ func run(args []string) error {
 // Small on purpose. The whole memory would flood the context window and bury
 // the few things that matter; this is the digest, and memory_search is there
 // for everything else.
+// distillEvery is how often the scheduled sync writes concept notes (SPEC §15
+// distill_every).
+const distillEvery = 30 * time.Minute
+
+// runDistill writes concept notes for qualifying subjects and, when any file
+// was created or updated, says so in log.md. The next sync commits both.
+func runDistill(v *vault.Vault, ix *index.Index) (*distill.Result, error) {
+	names, _ := ix.ScopeNames()
+	r, err := distill.Run(ix, v, names)
+	if err != nil {
+		return r, err
+	}
+	if err := ix.MarkRun("distill"); err != nil {
+		return r, err
+	}
+	if len(r.Paths) > 0 {
+		if err := v.AppendLog(distillSummary(r) + ": " + strings.Join(r.Paths, ", ")); err != nil {
+			return r, err
+		}
+	}
+	return r, nil
+}
+
+func distillSummary(r *distill.Result) string {
+	s := fmt.Sprintf("distill: %d new note%s, %d updated", r.Created, plural(r.Created), r.Updated)
+	if r.Kept > 0 {
+		s += fmt.Sprintf(", %d edited by you and left alone", r.Kept)
+	}
+	return s
+}
+
 // runSweep runs a sweep and records its summary in the vault's log.md, where a
 // person browsing the vault sees it (SPEC §9). The next sync commits it.
 func runSweep(v *vault.Vault, ix *index.Index) (*index.SweepReport, error) {

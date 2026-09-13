@@ -467,6 +467,10 @@ func (ix *Index) ImportLog(files []string) (int, error) {
 			if err := applyCheckpoint(tx, *e.Checkpoint); err != nil {
 				return 0, err
 			}
+		case e.Distill != nil:
+			if err := applyDistill(tx, *e.Distill); err != nil {
+				return 0, err
+			}
 		}
 	}
 	for base, pos := range positions {

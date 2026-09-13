@@ -49,6 +49,9 @@ type mcpServer struct {
 	ix     *index.Index
 	source string
 	out    *json.Encoder
+	// session identifies this server process in every write, so distillation
+	// can tell a subject restated across sessions from one written twice in one.
+	session string
 
 	mu       sync.Mutex
 	timer    *time.Timer
@@ -68,7 +71,7 @@ func runMCP(v *vault.Vault, cfg config.Config, source string) error {
 	}
 	defer closeIx()
 
-	s := &mcpServer{v: v, cfg: cfg, ix: ix, source: source, out: json.NewEncoder(os.Stdout)}
+	s := &mcpServer{v: v, cfg: cfg, ix: ix, source: source, out: json.NewEncoder(os.Stdout), session: "s-" + index.NewID()[:12]}
 	if e, err := newEmbedder(cfg); err != nil {
 		fmt.Fprintln(os.Stderr, "membraid: embeddings unavailable, searching by keywords:", err)
 	} else if e != nil {
@@ -402,7 +405,7 @@ func (s *mcpServer) callTool(req rpcRequest) {
 
 	switch p.Name {
 	case "memory_write":
-		res, err := s.ix.Write(index.Memory{Kind: a.Kind, Key: a.Key, Content: a.Content, Scope: sc, Source: s.source})
+		res, err := s.ix.Write(index.Memory{Kind: a.Kind, Key: a.Key, Content: a.Content, Scope: sc, Source: s.source, SessionRef: s.session})
 		if err != nil {
 			s.text(req.ID, err.Error(), true)
 			return

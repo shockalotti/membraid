@@ -8,6 +8,31 @@ next agent in the loop.
 
 ---
 
+## v1.15.2 (implementation amendments: distillation, sweep and staging)
+
+**§8 distillation writes readable notes, keyed subjects first.** A keyed subject
+(preference, project_param or insight) qualifies when its answer has been
+written at least twice, or in at least two sessions; MCP servers now stamp each
+write with a per-process `session_ref` so the second condition can be counted.
+Unkeyed clustering by trigram similarity waits. A note goes to the type's folder
+(`preferences/`, `projects/`, `facts/`), in a subfolder named for the project
+when the subject is not shared, named by its key. It is a `draft` whose body is
+the current statement and a History list of every earlier statement with its
+date and source. An existing note for the same `(scope, type, key)` is reused
+wherever a person moved it. membraid rewrites a note only while its bytes hash
+to what membraid last wrote; an edited or promoted note is never overwritten,
+but new rows are still linked to it with a `distill` line, which replay now
+applies. Runs every 30 minutes from the scheduled sync and on
+`membraid distill`, with a log.md line when files change.
+
+**§9 sweep, without concepts.** Counts rows unused for 90 days and unlinked,
+flags open tasks untouched for 14 days in the digest and status, checkpoints,
+and reports to log.md. Archival of concept files waits.
+
+**§4.5 staging.** Sync keeps `git add -A`; see the implementation note there.
+
+---
+
 ## v1.15.1 (implementation amendment: retrieval state and decay)
 
 **§3.4 checkpoints merge by newest time, and sync writes them.** The spec made
