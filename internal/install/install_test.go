@@ -327,3 +327,110 @@ func TestEmbeddingsTarget(t *testing.T) {
 		t.Errorf("dry run must run nothing, ran %v", r.calls)
 	}
 }
+
+// Grok gets its session digest from a grok() function in the shell startup
+// file. Installing adds it once, after the user's own lines, backed up.
+func TestGrokDigestFunctionInBashrc(t *testing.T) {
+	e, _ := newEnv(t)
+	e.Shell = "/usr/bin/bash"
+	rc := e.path(".bashrc")
+	write(t, rc, "export FOO=1\nalias ll='ls -l'\n")
+
+	apply(t, e, "grok")
+	got, _ := os.ReadFile(rc)
+	s := string(got)
+	if !strings.HasPrefix(s, "export FOO=1\nalias ll='ls -l'\n") {
+		t.Errorf("the user's lines must stay first and unchanged:\n%s", s)
+	}
+	if strings.Count(s, grokBlockBegin) != 1 || !strings.Contains(s, "'"+bin+"' context") || !strings.Contains(s, `command grok --rules "$digest" "$@"`) {
+		t.Errorf("want one digest block calling %s:\n%s", bin, s)
+	}
+	if b, err := os.ReadFile(rc + ".membraid.bak"); err != nil || string(b) != "export FOO=1\nalias ll='ls -l'\n" {
+		t.Error("the original .bashrc must be backed up")
+	}
+
+	apply(t, e, "grok")
+	again, _ := os.ReadFile(rc)
+	if string(again) != s {
+		t.Errorf("a second install must change nothing:\n%s", again)
+	}
+}
+
+// The block written by hand before the installer managed it is replaced, not
+// duplicated, and lines after it survive.
+func TestGrokDigestMigratesHandWrittenBlock(t *testing.T) {
+	e, _ := newEnv(t)
+	e.Shell = "/bin/bash"
+	rc := e.path(".bashrc")
+	handWritten := `export PATH="$PATH:$HOME/go/bin"
+
+# membraid: start every grok session with the membraid digest for this project.
+# Grok ignores what SessionStart hooks print, so the digest goes in through
+# --rules, which appends it to that session's system prompt. Steps aside if you
+# pass your own rules or system prompt, or if there is no digest.
+grok() {
+  case " $* " in
+    *" --rules"*|*" --append-system-prompt"*|*" --system-prompt"*) command grok "$@"; return ;;
+  esac
+  local digest
+  digest="$("${MEMBRAID_BIN:-$HOME/go/bin/membraid}" context 2>/dev/null)"
+  if [ -n "$digest" ]; then
+    command grok --rules "$digest" "$@"
+  else
+    command grok "$@"
+  fi
+}
+alias after=true
+`
+	write(t, rc, handWritten)
+	apply(t, e, "grok")
+	got, _ := os.ReadFile(rc)
+	s := string(got)
+	if strings.Contains(s, legacyGrokMarker) || strings.Contains(s, "MEMBRAID_BIN") {
+		t.Errorf("the hand-written block must be removed:\n%s", s)
+	}
+	if strings.Count(s, "grok() {") != 1 || strings.Count(s, grokBlockBegin) != 1 {
+		t.Errorf("want exactly one grok function, the managed one:\n%s", s)
+	}
+	if !strings.Contains(s, `export PATH="$PATH:$HOME/go/bin"`) || !strings.Contains(s, "alias after=true") {
+		t.Errorf("lines before and after the old block must survive:\n%s", s)
+	}
+}
+
+// Moving the binary rewrites the block rather than adding a second one.
+func TestGrokDigestFollowsTheBinary(t *testing.T) {
+	e, _ := newEnv(t)
+	e.Shell = "/usr/bin/zsh"
+	apply(t, e, "grok")
+	e.Bin = "/new/place/membraid"
+	apply(t, e, "grok")
+	got, err := os.ReadFile(e.path(".zshrc"))
+	if err != nil {
+		t.Fatal("zsh users get the function in ~/.zshrc")
+	}
+	s := string(got)
+	if strings.Count(s, grokBlockBegin) != 1 || !strings.Contains(s, "'/new/place/membraid' context") || strings.Contains(s, bin) {
+		t.Errorf("want one block pointing at the new binary:\n%s", s)
+	}
+}
+
+// Shells without sh-style functions get nothing written, and a dry run writes
+// nothing either.
+func TestGrokDigestSkipsOtherShellsAndDryRuns(t *testing.T) {
+	e, _ := newEnv(t)
+	e.Shell = "/usr/bin/fish"
+	apply(t, e, "grok")
+	for _, f := range []string{".bashrc", ".zshrc"} {
+		if _, err := os.Stat(e.path(f)); err == nil {
+			t.Errorf("fish users must not get a %s", f)
+		}
+	}
+
+	d, _ := newEnv(t)
+	d.Shell = "/usr/bin/bash"
+	d.DryRun = true
+	apply(t, d, "grok")
+	if _, err := os.Stat(d.path(".bashrc")); err == nil {
+		t.Error("a dry run must not write .bashrc")
+	}
+}

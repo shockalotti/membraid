@@ -16,7 +16,7 @@ machine already ticked, shows exactly what it will change, then does it:
 |---|---|---|---|
 | Claude Code | `~/.claude.json` | `SessionStart` hook | `~/.claude/skills/membraid` |
 | OpenCode | `opencode.json` | plugin | shares the Claude copy |
-| Grok | `grok mcp add` | none (Grok ignores hook output) | shares the Claude copy |
+| Grok | `grok mcp add` | `grok()` function in `~/.bashrc` or `~/.zshrc` | shares the Claude copy |
 | Hermes | `hermes mcp add` | plugin | `~/.hermes/skills/membraid` |
 | Omarchy bar widget | | | |
 | Sync timer (systemd) | | | |
@@ -269,7 +269,14 @@ membraid context        # see exactly what an agent starts with
   `experimental.chat.system.transform`, which OpenCode marks experimental; if
   it is ever renamed the plugin goes quiet and the rest still applies.
 - **Hermes** - a plugin that adds the digest to the first turn.
-- **Grok** - none: Grok discards what a `SessionStart` hook prints.
+- **Grok** - Grok discards what a `SessionStart` hook prints, so `install` adds
+  a `grok` shell function to `~/.bashrc` (bash) or `~/.zshrc` (zsh) that passes
+  the digest as `--rules`, which Grok appends to the session's system prompt.
+  It sits between marker comments, so a rerun replaces it in place and the file
+  is backed up to `.membraid.bak` first. It steps aside when you pass your own
+  `--rules` or system prompt. It reaches Grok started from a terminal only; with
+  another shell (fish, PowerShell) Grok gets the MCP server and skill but no
+  digest.
 
 The sources for all of these are in `assets/`, built into the binary.
 

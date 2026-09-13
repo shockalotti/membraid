@@ -45,6 +45,9 @@ type Env struct {
 	LookPath func(string) (string, error)
 	// OllamaUp reports whether a local Ollama server answers. Nil means no.
 	OllamaUp func() bool
+	// Shell is the user's login shell ($SHELL), which decides where a shell
+	// function such as Grok's session digest can go.
+	Shell string
 }
 
 func DefaultEnv(bin string, out io.Writer) (*Env, error) {
@@ -52,7 +55,7 @@ func DefaultEnv(bin string, out io.Writer) (*Env, error) {
 	if err != nil {
 		return nil, err
 	}
-	return &Env{Home: home, Bin: bin, Out: out, Run: runCommand, LookPath: exec.LookPath, OllamaUp: ollamaUp}, nil
+	return &Env{Home: home, Bin: bin, Out: out, Run: runCommand, LookPath: exec.LookPath, OllamaUp: ollamaUp, Shell: os.Getenv("SHELL")}, nil
 }
 
 // ollamaUp probes the local Ollama API with a short timeout, so install never

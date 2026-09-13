@@ -151,11 +151,11 @@ func grok() Target {
 		ID: "grok", Name: "Grok",
 		Detect: func(e *Env) bool { return e.has("grok", ".grok") },
 		Notes: []string{
-			"Grok ignores SessionStart hook output, so it gets the MCP instructions and the skill but no session digest.",
+			"Grok ignores SessionStart hook output, so its session digest comes from a grok() function in ~/.bashrc or ~/.zshrc that passes it as --rules. It reaches grok started from a terminal; with another shell (fish, PowerShell) grok gets the MCP server and skill but no digest.",
 			"Grok reads ~/.claude/skills, so it shares that copy of the skill; a second copy in ~/.grok/skills would collide with it.",
 		},
 		Steps: func(e *Env) []Step {
-			return []Step{
+			steps := []Step{
 				{Desc: "MCP server " + ServerName + " via grok mcp add (user scope)", Apply: func(e *Env) error {
 					if legacyGrokEntry(e) {
 						if out, err := e.Run("", "grok", "mcp", "remove", legacyName, "--scope", "user"); err != nil {
@@ -169,6 +169,13 @@ func grok() Target {
 				}},
 				skillStep(filepath.Join(".claude", "skills", "membraid", "SKILL.md")),
 			}
+			if rc := e.shellRC(); rc != "" {
+				steps = append(steps, Step{
+					Desc:  "session digest: grok() function in ~/" + filepath.Base(rc) + " passing membraid context as --rules",
+					Apply: upsertGrokDigest,
+				})
+			}
+			return steps
 		},
 	}
 }

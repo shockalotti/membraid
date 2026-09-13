@@ -32,7 +32,7 @@ membraid is one brain behind all of them.
 |---|---|---|---|
 | Claude Code | yes | yes | yes |
 | OpenCode | yes | yes | yes |
-| Grok | yes | no (Grok ignores hook output) | yes |
+| Grok | yes | yes, from a terminal (a `grok` shell function; bash and zsh) | yes |
 | Hermes | yes | yes | yes |
 | Anything else | any MCP stdio client: `membraid mcp --source NAME` | | |
 | Scripts, cron | the `membraid` CLI | | |
