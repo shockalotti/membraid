@@ -57,7 +57,9 @@ old answer instead of piling up beside it. Give one whenever the subject can
 change. Omit it only for one-off observations.
 
 - Dotted, lowercase, general to specific: `editor.theme`, `deploy.target`,
-  `db.migrations.tool`, `task.auth-fix`.
+  `db.migrations.tool`, `task.auth.fix`.
+- Punctuation is normalised: hyphens, underscores and spaces become dots, so
+  `task.auth-fix` is stored as `task.auth.fix`. Results show the stored form.
 - Name the subject, not the value: `deploy.target`, never `deploy.railway`.
 - **Reuse before you invent.** Search first, and write to the key that already
   exists. Two agents inventing `deploy.target` and `deploy.platform` for the
@@ -92,7 +94,7 @@ A task is how the next session - or the user glancing at their bar widget -
 knows where things stand.
 
 1. **Starting** multi-step work that might outlive the session: write a
-   `task_state` with a key, e.g. `task.auth-fix`.
+   `task_state` with a key, e.g. `task.auth.fix`.
 2. **Progressing**: write again with the *same key*. It replaces the earlier
    state rather than adding another open task.
 3. **Finishing**: call `memory_done` with the key. An unfinished-looking task
@@ -120,7 +122,14 @@ Write the correct fact with the **same kind and key**. It supersedes the wrong
 one, which is kept as history, never deleted. Do not write the correction under
 a new key: that leaves both answers live.
 
-If the wrong memory had no key, write the correct one *with* a key.
+If the wrong memory had no key, write the correct one *with* a key, then
+forget the old one by its id.
+
+When there is **nothing true to replace it** - a tool that was removed, a plan
+that was abandoned, something recorded by mistake - call `memory_forget` with
+the id from `memory_search`. It leaves search and the session digest on every
+machine and stays in history. Do not forget a memory just because it is old,
+or because you disagree with it: if the user said it, ask first.
 
 The user can always fix memory by hand - the vault is plain markdown. If they
 say memory is wrong, correct it; do not argue with them about what it said.
@@ -133,7 +142,8 @@ The CLI does the same thing from any shell:
 membraid search "deploy"
 membraid get deploy.target
 membraid write "deploys to Railway" --kind project_param --key deploy.target
-membraid done task.auth-fix
+membraid done task.auth.fix
+membraid forget --id ID  # retire a memory with nothing to replace it
 membraid status          # open tasks and recent memory
 membraid context         # the digest a session starts with
 ```

@@ -198,6 +198,47 @@ func TestDoneSurvivesRebuild(t *testing.T) {
 	}
 }
 
+// Forget retires a memory of any kind that has nothing to replace it. It is a
+// close, not a delete: the entry leaves search and the digest but stays in
+// history.
+func TestForgetRetiresAnyKindByIDAndKey(t *testing.T) {
+	ix := newIndex(t)
+	stray, _ := ix.Write(Memory{Kind: KindInsight, Content: "cross-machine smoke test entry", Source: "cli"})
+	ix.Write(Memory{Kind: KindProjectParam, Key: "ci.runner", Content: "uses buildkite", Scope: "g1", Source: "x"})
+
+	if got, err := ix.Forget("shared", "", stray.ID); err != nil || len(got) != 1 {
+		t.Fatalf("forget by id: %v %v", got, err)
+	}
+	if got, err := ix.Forget("g1", "CI_Runner", ""); err != nil || len(got) != 1 {
+		t.Fatalf("forget by key, spelled differently: %v %v", got, err)
+	}
+	if hits, _ := ix.Search("smoke buildkite", "*", 10); len(hits) != 0 {
+		t.Errorf("forgotten memories must leave search: %v", hits)
+	}
+	if hist, _ := ix.History("g1", KindProjectParam, "ci.runner"); len(hist) != 1 {
+		t.Errorf("forgetting must keep the entry in history, got %d rows", len(hist))
+	}
+	if _, err := ix.Forget("g1", "ci.runner", ""); err != ErrNothingToForget {
+		t.Errorf("forgetting twice must report nothing to forget, got %v", err)
+	}
+	if _, err := ix.Forget("g1", "", ""); err == nil {
+		t.Error("forget with neither key nor id must fail")
+	}
+}
+
+// Forget is logged, so a forgotten memory stays forgotten on the other machine.
+func TestForgetSurvivesRebuild(t *testing.T) {
+	dir := t.TempDir()
+	a := newIndexAt(t, dir, "a")
+	w, _ := a.Write(Memory{Kind: KindPreference, Content: "prefers a tool since removed", Source: "x"})
+	a.Forget("shared", "", w.ID)
+	fresh := newIndexAt(t, dir, "fresh")
+	fresh.ImportAll()
+	if hits, _ := fresh.Search("removed", "*", 10); len(hits) != 0 {
+		t.Errorf("the memory came back on rebuild: %v", hits)
+	}
+}
+
 // Rescope is logged, so a moved project stays moved on every machine. Before
 // this, rescope only touched the local index and a clone put the memories
 // straight back in the old scope.

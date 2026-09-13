@@ -270,6 +270,7 @@ need work, not the plumbing.
 | `memory_search` | Search current memory: this project plus `shared` |
 | `memory_get` | The live answer for one subject key |
 | `memory_done` | Mark a task finished, by key or id, so it leaves *where you left off* |
+| `memory_forget` | Retire a memory that is wrong with nothing to replace it; it stays in history |
 
 The `key` is what makes this a shared brain rather than a pile. Claude Code
 writes `deploy.target = railway`; three weeks later Grok writes

@@ -33,6 +33,7 @@ Usage:
   membraid get KEY                       the live answer for one subject
   membraid history KEY                   what we used to think
   membraid done KEY | --id ID            mark a task finished
+  membraid forget KEY | --id ID          retire a memory with nothing true to replace it
   membraid status [--json]               where you left off + what agents learned
   membraid context [--format claude]     the short digest an agent starts a session with
   membraid sync [--json]                 commit, pull, push, import - once
@@ -175,6 +176,26 @@ func run(args []string) error {
 			return nil
 		})
 
+	case "forget":
+		return withIndex(v, cfg, func(ix *index.Index) error {
+			k := ""
+			if fs.NArg() > 0 {
+				k = fs.Arg(0)
+			}
+			if k == "" && *id == "" {
+				return fmt.Errorf("forget needs a key or --id; 'membraid search' shows ids")
+			}
+			gone, err := ix.Forget(scope.Resolve(*scopeFlag), k, *id)
+			if errors.Is(err, index.ErrNothingToForget) {
+				return fmt.Errorf("no current memory matches; 'membraid search' shows keys and ids")
+			}
+			if err != nil {
+				return err
+			}
+			fmt.Printf("forgot %d memor%s (still in history)\n", len(gone), map[bool]string{true: "y", false: "ies"}[len(gone) == 1])
+			return nil
+		})
+
 	case "search":
 		if fs.NArg() < 1 {
 			return fmt.Errorf("search needs a query")
@@ -193,7 +214,7 @@ func run(args []string) error {
 				fmt.Println("nothing found")
 			}
 			for _, h := range hits {
-				fmt.Printf("%-14s %-16s %-12s %s\n", h.Kind, dash(h.Key), h.Scope, h.Content)
+				fmt.Printf("%-14s %-16s %-12s %s  [id %s]\n", h.Kind, dash(h.Key), h.Scope, h.Content, h.ID)
 			}
 			return nil
 		})
@@ -212,7 +233,7 @@ func run(args []string) error {
 						return err
 					}
 					if m != nil {
-						fmt.Printf("%-14s %s\n", m.Kind, m.Content)
+						fmt.Printf("%-14s %s  [id %s]\n", m.Kind, m.Content, m.ID)
 						found = true
 					}
 					continue

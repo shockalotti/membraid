@@ -209,9 +209,11 @@ Write (memory_write) when:
 - you discover something non-obvious that would save a future session time - kind insight
 - work is left unfinished at the end of a session - kind task_state, so the next session can pick it up
 
-Keys: give one whenever the subject can change - a later write with the same key replaces the old answer instead of competing with it. Dotted lowercase, general to specific: editor.theme, deploy.target, task.auth-fix.
+Keys: give one whenever the subject can change - a later write with the same key replaces the old answer instead of competing with it. Dotted lowercase, general to specific: editor.theme, deploy.target, task.auth.fix (hyphens and underscores become dots).
 
 Tasks: every task_state should have a key. Call memory_done when the task is finished; an open task is shown to the user as where they left off.
+
+Wrong: write the right answer under the same key, which replaces it. If nothing true replaces it (a removed tool, an abandoned plan, a mistake), memory_forget.
 
 Do not record: routine chatter, anything already in the code or git history, or secrets. Memory is synced to a git remote - never store passwords, tokens, API keys or credentials.`
 
@@ -240,7 +242,7 @@ func toolDefs() []map[string]any {
 							"insight: something you observed or concluded. " +
 							"task_state: what is in progress, shown to the user as where they left off. " +
 							"If it will still be true at the end of the session it is not task_state. " +
-							"Give task_state a key such as task.auth-fix, and call memory_done when it is finished.",
+							"Give task_state a key such as task.auth.fix, and call memory_done when it is finished.",
 					},
 					"key":   map[string]any{"type": "string", "description": keyGuidance},
 					"scope": map[string]any{"type": "string", "description": "Omit for the current project. Use \"shared\" for something true everywhere, like a standing preference."},
@@ -254,8 +256,22 @@ func toolDefs() []map[string]any {
 			"inputSchema": map[string]any{
 				"type": "object",
 				"properties": map[string]any{
-					"key":   map[string]any{"type": "string", "description": "The task's key, e.g. task.auth-fix."},
+					"key":   map[string]any{"type": "string", "description": "The task's key, e.g. task.auth.fix."},
 					"id":    map[string]any{"type": "string", "description": "The task's id, for one written without a key."},
+					"scope": map[string]any{"type": "string", "description": "Omit for the current project."},
+				},
+			},
+		},
+		{
+			"name": "memory_forget",
+			"description": "Retire a memory that is wrong or no longer true and has nothing true to replace it - a tool that was removed, a plan that was abandoned, something recorded by mistake. " +
+				"If there is a correct answer, do not forget: write it with memory_write under the same key, which replaces the old one. " +
+				"The memory leaves search and the session digest on every machine, but stays in history. Pass the id shown in memory_search results, or the key.",
+			"inputSchema": map[string]any{
+				"type": "object",
+				"properties": map[string]any{
+					"id":    map[string]any{"type": "string", "description": "The memory's id from memory_search. Preferred: it names exactly one memory."},
+					"key":   map[string]any{"type": "string", "description": "Retires every current memory with this key in the scope."},
 					"scope": map[string]any{"type": "string", "description": "Omit for the current project."},
 				},
 			},
@@ -341,6 +357,27 @@ func (s *mcpServer) callTool(req rpcRequest) {
 		s.text(req.ID, fmt.Sprintf("Marked %d task%s done.", len(closed), plural(len(closed))), false)
 		s.scheduleSync()
 
+	case "memory_forget":
+		if a.Key == "" && a.ID == "" {
+			s.text(req.ID, "memory_forget needs the memory's id or key.", true)
+			return
+		}
+		gone, err := s.ix.Forget(sc, a.Key, a.ID)
+		if errors.Is(err, index.ErrNothingToForget) {
+			s.text(req.ID, "No current memory matches that. memory_search shows ids.", true)
+			return
+		}
+		if err != nil {
+			s.text(req.ID, err.Error(), true)
+			return
+		}
+		noun := "memories"
+		if len(gone) == 1 {
+			noun = "memory"
+		}
+		s.text(req.ID, fmt.Sprintf("Forgot %d %s. It no longer appears in search or the digest, and stays in history.", len(gone), noun), false)
+		s.scheduleSync()
+
 	case "memory_search":
 		hits, err := s.ix.Search(a.Query, sc, a.Limit)
 		if err != nil {
@@ -357,10 +394,7 @@ func (s *mcpServer) callTool(req rpcRequest) {
 			if h.Key != "" {
 				b.WriteString(" " + h.Key)
 			}
-			b.WriteString("] " + h.Content + " (" + h.Scope + ", via " + h.Source)
-			if h.Kind == index.KindTaskState {
-				b.WriteString(", id " + h.ID)
-			}
+			b.WriteString("] " + h.Content + " (" + h.Scope + ", via " + h.Source + ", id " + h.ID)
 			b.WriteString(")\n")
 		}
 		s.text(req.ID, strings.TrimRight(b.String(), "\n"), false)
@@ -374,10 +408,7 @@ func (s *mcpServer) callTool(req rpcRequest) {
 				return
 			}
 			if m != nil {
-				b.WriteString("- [" + m.Kind + "] " + m.Content + " (via " + m.Source)
-				if m.Kind == index.KindTaskState {
-					b.WriteString(", id " + m.ID)
-				}
+				b.WriteString("- [" + m.Kind + "] " + m.Content + " (via " + m.Source + ", id " + m.ID)
 				b.WriteString(")\n")
 			}
 		}

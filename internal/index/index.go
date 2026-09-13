@@ -77,6 +77,7 @@ type WriteResult struct {
 
 var ErrInvalidKind = errors.New("index: unknown kind")
 var ErrNothingToClose = errors.New("index: no open task matches")
+var ErrNothingToForget = errors.New("index: no current memory matches")
 
 var keySep = regexp.MustCompile(`[\s._/\-]+`)
 var keyJunk = regexp.MustCompile(`[^a-z0-9.]`)
@@ -454,28 +455,82 @@ func (ix *Index) Done(scope, key, id string) ([]string, error) {
 				args = append(args, s)
 			}
 		}
-		rows, err := ix.db.Query(q, args...)
+		ids, err := ix.queryIDs(q, args...)
 		if err != nil {
 			return nil, err
 		}
-		for rows.Next() {
-			var t string
-			if err := rows.Scan(&t); err != nil {
-				rows.Close()
-				return nil, err
-			}
-			targets = append(targets, t)
-		}
-		rows.Close()
+		targets = ids
 	}
 	if len(targets) == 0 {
 		return nil, ErrNothingToClose
 	}
 
+	return ix.closeIDs(targets, "done")
+}
+
+// Forget retires live memories of any kind, by id or by key, for a fact that
+// is wrong or no longer true and has nothing true to replace it: a removed
+// tool, an abandoned plan, something recorded by mistake. A fact that has a
+// correct answer is superseded by writing that answer under the same key
+// instead. Nothing is deleted: the entry stays in history, and the close is
+// logged so it is forgotten on every machine.
+func (ix *Index) Forget(scope, key, id string) ([]string, error) {
+	var targets []string
+	if id != "" {
+		ids, err := ix.queryIDs(`SELECT id FROM memories WHERE id=? AND valid_to IS NULL`, id)
+		if err != nil {
+			return nil, err
+		}
+		targets = ids
+	} else {
+		key = NormalizeKey(key)
+		if key == "" {
+			return nil, errors.New("index: forget needs a key or an id")
+		}
+		args := []any{key}
+		q := `SELECT id FROM memories WHERE key=? AND valid_to IS NULL`
+		if scopes := effectiveScopes(scope); len(scopes) > 0 {
+			q += ` AND scope IN (` + placeholders(len(scopes)) + `)`
+			for _, s := range scopes {
+				args = append(args, s)
+			}
+		}
+		ids, err := ix.queryIDs(q, args...)
+		if err != nil {
+			return nil, err
+		}
+		targets = ids
+	}
+	if len(targets) == 0 {
+		return nil, ErrNothingToForget
+	}
+	return ix.closeIDs(targets, "forgotten")
+}
+
+func (ix *Index) queryIDs(q string, args ...any) ([]string, error) {
+	rows, err := ix.db.Query(q, args...)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var ids []string
+	for rows.Next() {
+		var id string
+		if err := rows.Scan(&id); err != nil {
+			return nil, err
+		}
+		ids = append(ids, id)
+	}
+	return ids, rows.Err()
+}
+
+// closeIDs logs a close line for each target, then applies them in one
+// transaction - log first, so the log stays a superset of the index.
+func (ix *Index) closeIDs(targets []string, reason string) ([]string, error) {
 	at := ix.now()
 	lines := make([]wirelog.CloseLine, 0, len(targets))
 	for _, t := range targets {
-		cl := wirelog.CloseLine{Header: wirelog.NewHeader(wirelog.TypeClose, at), ID: t, Reason: "done"}
+		cl := wirelog.CloseLine{Header: wirelog.NewHeader(wirelog.TypeClose, at), ID: t, Reason: reason}
 		if ix.log != nil {
 			if err := ix.log.Append(cl); err != nil {
 				return nil, fmt.Errorf("index: wire log: %w", err)
