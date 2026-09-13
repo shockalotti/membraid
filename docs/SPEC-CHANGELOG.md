@@ -8,6 +8,36 @@ next agent in the loop.
 
 ---
 
+## v1.15 (search decisions, from measurement)
+
+Semantic search moved from "later, if FTS5 falls short" to decided, on
+measurements rather than argument. The full record, with every table and the
+rejected alternatives, is `docs/SEARCH-EVALUATION.md`. What it changes in §7.2:
+
+- **Keyword query semantics.** Queries no longer AND every token. English
+  stopwords are dropped, identifier-like tokens (env vars, paths, versions,
+  error codes) are kept whole as phrases, and the remaining terms are ORed and
+  ranked by bm25. The AND form matched nothing for natural-language questions:
+  0 of 85 ordinary test queries, against 15 of 15 identifiers.
+- **With embeddings on, retrieval is vector-only, not fused.** RRF fusion of
+  vector and keyword results lowered top-5 recall from 0.91-0.96 to 0.65-0.72
+  on the test set, because paraphrased queries still share common words with
+  wrong memories. Gated and identifier-boosted variants at best tied
+  vector-only. Keyword search is what runs when embeddings are off.
+- **Vectors are derived, per-machine index state.** Embeddings and binary codes
+  live in the local index and are never written as wire-log lines, so the
+  locked log format is untouched. A machine can use a different model from
+  another, and changing model re-embeds locally.
+- **M11 no longer waits for FTS5 to fall short.** It is scheduled after slice
+  8. The store is pure Go over the existing SQLite index (binary codes plus
+  exact rescoring: recall 0.9975 at 1.42 ms long-lived at 100K rows), chosen
+  over SQLite's vec1 and sqlite-vec. Embeddings are optional and local:
+  EmbeddingGemma 300M q4_0 via Ollama, or all-MiniLM-L6-v2 built in.
+
+Decay (§7.2 step 3) still applies to whichever ranking runs.
+
+---
+
 ## v1.14.2 (implementation amendment, found by a stress test)
 
 **§5.3: a line that is not JSON is skipped wherever it sits, and writers start

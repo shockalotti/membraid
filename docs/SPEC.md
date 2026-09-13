@@ -955,6 +955,12 @@ and splices the result in with provenance:
 
 ### 7.2 Ranking: wide fusion pool, then one decay knob
 
+> **Implementation note (v1.15).** The fusion design below is amended by
+> measurement: keyword queries drop stopwords and OR their terms, and when
+> embeddings are enabled retrieval is vector-only rather than fused, because
+> fusion measurably lowered recall. Decay still applies. See
+> `docs/SEARCH-EVALUATION.md` and the v1.15 changelog entry.
+
 Two FTS tables exist; their bm25 values are **not on a comparable scale**
 (one column vs three columns, different row populations). A single merged
 formula would let one index dominate. Instead:

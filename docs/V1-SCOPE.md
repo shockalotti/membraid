@@ -107,8 +107,13 @@ next starts; the goal is the **usable** line below, not the bottom of the table.
 ### The quality layer: in progress
 
 The original plan held these back until the store was big enough to hurt. The
-decision now is to build them rather than wait; their design is being settled
-against the spec before code.
+decision now is to build them rather than wait. Agreed sequence:
+
+1. **8a** - fix keyword search: stopwords dropped, identifiers kept whole, OR, bm25
+2. **8b** - retrieval tracking, decay in ranking, digest scoring, and guidance for agents to rephrase a search that misses
+3. **Hybrid search** (§16 M11) - pure Go vector search, embeddings optional ([SEARCH-EVALUATION.md](SEARCH-EVALUATION.md))
+4. **10** - sweep
+5. **9** - distillation, kept for its readable per-subject markdown files
 
 | # | Slice | SPEC ref |
 |---|---|---|
@@ -152,7 +157,9 @@ does not exist on day one, and each is cheap to add when it does.
 | Schema + protocol version skew | §5.3 | A second shipped version |
 | Full scope ladder, `unscoped` quarantine | §17 | More than a `--scope` flag needs |
 | Obsidian watcher | §16 M9 | The `reindex`-after-edit workflow to annoy someone |
-| Vector search | §16 M11 | FTS5 to demonstrably fall short |
+| Vector search | §16 M11 | Decided, no longer deferred: pure Go over the existing SQLite index, optional local embeddings (EmbeddingGemma via Ollama, or built-in all-MiniLM), vector-only when on. Measurements and rejected alternatives in [SEARCH-EVALUATION.md](SEARCH-EVALUATION.md) |
+| Embedding speed on low-end machines | - | Deferred by choice. The embedding bake-off picks a default model on a fast laptop first; the weakest supported machine (e.g. a 4-core minipc) is tested before that model is recommended to anyone |
+| Cloud embedding APIs (Gemini, Voyage, Mistral, Jina and similar) | - | Deferred by choice: memory stays on the user's own machines. If ever added, strictly opt-in, with a clear warning that memory content leaves the machine |
 
 **The wire-log line format is not deferred and not provisional.** It is the one
 artifact nothing can rebuild, so its format is locked now (§5.3, writer-side
