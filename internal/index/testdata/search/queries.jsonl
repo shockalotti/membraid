@@ -1,0 +1,100 @@
+{"id":"q001","category":"paraphrase","query":"why does the purchase flow browser test fail intermittently","relevant":["m006"]}
+{"id":"q002","category":"paraphrase","query":"what keeps the frontend compile job from exhausting RAM on the small pipeline machine","relevant":["m014"]}
+{"id":"q003","category":"paraphrase","query":"React complains that markup rendered differently on first load for item listings, what causes that","relevant":["m016"]}
+{"id":"q004","category":"paraphrase","query":"pending work on refreshing the catalogue finder when some goods lack a stock-keeping code","relevant":["m019"]}
+{"id":"q005","category":"paraphrase","query":"where do visitor traffic statistics go","relevant":["m020"]}
+{"id":"q006","category":"paraphrase","query":"why can't the request interceptor talk to the ORM directly","relevant":["m021"]}
+{"id":"q007","category":"paraphrase","query":"which media host delivers merchandise photos","relevant":["m012"]}
+{"id":"q008","category":"paraphrase","query":"why did billing specs break near the day boundary","relevant":["m027"]}
+{"id":"q009","category":"paraphrase","query":"what does the API respond if a retry carries the same dedupe token but altered data","relevant":["m031"]}
+{"id":"q010","category":"paraphrase","query":"which payment processor takes customer money","relevant":["m034"]}
+{"id":"q011","category":"paraphrase","query":"what ordering avoids database contention hangs between plan records and bills","relevant":["m037"]}
+{"id":"q012","category":"paraphrase","query":"is the older endpoint generation still getting new features","relevant":["m039"]}
+{"id":"q013","category":"paraphrase","query":"where do I put my machine-specific settings for the payments backend","relevant":["m040"]}
+{"id":"q014","category":"paraphrase","query":"what remains to do on reminding customers about failed charges","relevant":["m043"]}
+{"id":"q015","category":"paraphrase","query":"what must I do after changing a database statement file so the Go code stays in sync","relevant":["m044"]}
+{"id":"q016","category":"paraphrase","query":"what workflow scheduler coordinates the data jobs","relevant":["m048"]}
+{"id":"q017","category":"paraphrase","query":"which analytical engine stores tables on my machine versus in the hosted environment","relevant":["m049"]}
+{"id":"q018","category":"paraphrase","query":"why does the currency conversion check fail sometimes","relevant":["m051"]}
+{"id":"q019","category":"paraphrase","query":"the annual billing dump exhausts RAM, what cures that","relevant":["m055"]}
+{"id":"q020","category":"paraphrase","query":"where do supplier uploads arrive before processing","relevant":["m056"]}
+{"id":"q021","category":"paraphrase","query":"which process status signals a transient upstream outage","relevant":["m057"]}
+{"id":"q022","category":"paraphrase","query":"how far along is the conversion of warehouse logic to the templated analytics engineering tool","relevant":["m058"]}
+{"id":"q023","category":"paraphrase","query":"parallel pipeline runs collide on the embedded analytics store in automation","relevant":["m059"]}
+{"id":"q024","category":"paraphrase","query":"which chat room hears about broken ingestion","relevant":["m062"]}
+{"id":"q025","category":"paraphrase","query":"why were the per-date slices off by one","relevant":["m064"]}
+{"id":"q026","category":"paraphrase","query":"which service compiles the mobile packages for distribution","relevant":["m069"]}
+{"id":"q027","category":"paraphrase","query":"UI automation on the Apple emulator is unreliable, what toggle helps","relevant":["m071"]}
+{"id":"q028","category":"paraphrase","query":"what hosted platform provides login and storage for the mobile app","relevant":["m072"]}
+{"id":"q029","category":"paraphrase","query":"can a JS patch reach phones without resubmitting to the marketplaces","relevant":["m074"]}
+{"id":"q030","category":"paraphrase","query":"the Google phone compile breaks with a repeated symbol error since the cartography dependency arrived","relevant":["m075"]}
+{"id":"q031","category":"paraphrase","query":"how does the travel app hold shared client data between screens","relevant":["m076"]}
+{"id":"q032","category":"paraphrase","query":"which languages does the mobile interface come in","relevant":["m078"]}
+{"id":"q033","category":"paraphrase","query":"why did Apple turn down our submission","relevant":["m080"]}
+{"id":"q034","category":"paraphrase","query":"startup failure on old phones about a missing internationalization global","relevant":["m083"]}
+{"id":"q035","category":"paraphrase","query":"the bundler serves outdated JavaScript after I check out other work, how to reset it","relevant":["m088"]}
+{"id":"q036","category":"paraphrase","query":"why did golden-file comparisons collide when executed concurrently","relevant":["m091"]}
+{"id":"q037","category":"paraphrase","query":"how should failures be modelled in the executable versus the reusable package","relevant":["m094"]}
+{"id":"q038","category":"paraphrase","query":"Microsoft OS jobs broke on filesystem location assertions","relevant":["m098"]}
+{"id":"q039","category":"paraphrase","query":"static Linux artifacts could not compile because of the crypto C library","relevant":["m104"]}
+{"id":"q040","category":"paraphrase","query":"does the Rust tool rely on tokio for web requests","relevant":["m105"]}
+{"id":"q041","category":"paraphrase","query":"crash when shortening Unicode identifiers","relevant":["m107"]}
+{"id":"q042","category":"paraphrase","query":"where is the manual for the command-line program published","relevant":["m108"]}
+{"id":"q043","category":"paraphrase","query":"what concurrency caps apply to asynchronous work in the Phoenix app","relevant":["m119"]}
+{"id":"q044","category":"paraphrase","query":"how do schema changes get applied when shipping the admin portal","relevant":["m124"]}
+{"id":"q045","category":"paraphrase","query":"BEAM instances would not discover each other, what fixed it","relevant":["m127"]}
+{"id":"q046","category":"paraphrase","query":"where are permission checks for admin actions defined","relevant":["m128"]}
+{"id":"q047","category":"paraphrase","query":"what library delivers outgoing mail from the portal","relevant":["m131"]}
+{"id":"q048","category":"paraphrase","query":"which text editing program do I prefer","relevant":["m133"]}
+{"id":"q049","category":"paraphrase","query":"what interactive terminal interpreter am I on","relevant":["m137"]}
+{"id":"q050","category":"paraphrase","query":"what colour scheme do I like","relevant":["m146"]}
+{"id":"q051","category":"natural","query":"What package manager does Tidepool use?","relevant":["m003"]}
+{"id":"q052","category":"natural","query":"How do I run the Ledgerline integration tests?","relevant":["m026"]}
+{"id":"q053","category":"natural","query":"Which Python version should Quarry use?","relevant":["m046"]}
+{"id":"q054","category":"natural","query":"What Expo SDK is Fernweh on?","relevant":["m068"]}
+{"id":"q055","category":"natural","query":"What is Brasswind's minimum Rust version?","relevant":["m089"]}
+{"id":"q056","category":"natural","query":"Where are Oriel database migrations and how do they run?","relevant":["m116","m124"]}
+{"id":"q057","category":"natural","query":"How does Tidepool log shoppers in?","relevant":["m015"]}
+{"id":"q058","category":"natural","query":"What should I do before adding a new dependency?","relevant":["m141"]}
+{"id":"q059","category":"natural","query":"How should commit messages be written?","relevant":["m135"]}
+{"id":"q060","category":"natural","query":"What is still unfinished in the Fernweh push notifications work?","relevant":["m087"]}
+{"id":"q061","category":"natural","query":"How are Fernweh screens and routes organised?","relevant":["m077"]}
+{"id":"q062","category":"natural","query":"What formatter and type checker does Quarry use?","relevant":["m053"]}
+{"id":"q063","category":"natural","query":"How does Ledgerline represent money amounts in JSON?","relevant":["m030"]}
+{"id":"q064","category":"natural","query":"How do I fix Oriel LiveView tests failing with an ownership error?","relevant":["m115"]}
+{"id":"q065","category":"natural","query":"What is the plan for the slow Oriel customers CSV export?","relevant":["m129"]}
+{"id":"q066","category":"natural","query":"Which dependency licenses does Brasswind allow?","relevant":["m102"]}
+{"id":"q067","category":"natural","query":"How big should my pull requests be?","relevant":["m145"]}
+{"id":"q068","category":"natural","query":"Which Android and iOS versions does Fernweh support?","relevant":["m082"]}
+{"id":"q069","category":"natural","query":"Where does Fernweh send crash reports?","relevant":["m081"]}
+{"id":"q070","category":"natural","query":"What is left to do on the Brasswind plugin system?","relevant":["m109"]}
+{"id":"q071","category":"identifier","query":"LEDGER_PG_DSN","relevant":["m029"]}
+{"id":"q072","category":"identifier","query":"LL-4091","relevant":["m031"]}
+{"id":"q073","category":"identifier","query":"ORL-LOCKED","relevant":["m126"]}
+{"id":"q074","category":"identifier","query":"EXPO_PUBLIC_SUPABASE_ANON_KEY","relevant":["m073"]}
+{"id":"q075","category":"identifier","query":"BRASSWIND_CONFIG","relevant":["m096"]}
+{"id":"q076","category":"identifier","query":"src/hooks/useCart.ts","relevant":["m013"]}
+{"id":"q077","category":"identifier","query":"config/sources.yaml","relevant":["m063"]}
+{"id":"q078","category":"identifier","query":"MOTHERDUCK_TOKEN","relevant":["m052"]}
+{"id":"q079","category":"identifier","query":"go1.23.4","relevant":["m025"]}
+{"id":"q080","category":"identifier","query":"kotlin-stdlib 1.9.24","relevant":["m075"]}
+{"id":"q081","category":"identifier","query":"ADYEN_HMAC_KEY","relevant":["m035"]}
+{"id":"q082","category":"identifier","query":"DATABASE_URL_POOLED","relevant":["m008"]}
+{"id":"q083","category":"identifier","query":"exit code 75","relevant":["m057"]}
+{"id":"q084","category":"identifier","query":"src/maps/tileCache.ts","relevant":["m079"]}
+{"id":"q085","category":"identifier","query":"SECRET_KEY_BASE","relevant":["m117"]}
+{"id":"q086","category":"distractor","query":"Where does Oriel production deploy?","relevant":["m113"]}
+{"id":"q087","category":"distractor","query":"Which host runs the Tidepool staging environment?","relevant":["m002"]}
+{"id":"q088","category":"distractor","query":"How do I run Oriel's tests?","relevant":["m114"]}
+{"id":"q089","category":"distractor","query":"Which env var holds the Oriel database URL?","relevant":["m117"]}
+{"id":"q090","category":"distractor","query":"Ledgerline database connection string variable","relevant":["m029"]}
+{"id":"q091","category":"distractor","query":"How are feature flags managed in Oriel?","relevant":["m132"]}
+{"id":"q092","category":"distractor","query":"Which Postgres version does Oriel use?","relevant":["m116"]}
+{"id":"q093","category":"distractor","query":"Why do the Quarry tests flake?","relevant":["m051"]}
+{"id":"q094","category":"distractor","query":"Where is Brasswind's config file?","relevant":["m096"]}
+{"id":"q095","category":"distractor","query":"Which package manager does Fernweh use?","relevant":["m067"]}
+{"id":"q096","category":"distractor","query":"Who sends Tidepool's emails?","relevant":["m015"]}
+{"id":"q097","category":"distractor","query":"What does the Oriel API error format look like?","relevant":["m125","m126"]}
+{"id":"q098","category":"distractor","query":"How do I format and lint Tidepool code?","relevant":["m017"]}
+{"id":"q099","category":"distractor","query":"Which Fly.io region is Oriel staging in?","relevant":["m112"]}
+{"id":"q100","category":"distractor","query":"What does Brasswind use for pre-commit hooks?","relevant":["m147"]}

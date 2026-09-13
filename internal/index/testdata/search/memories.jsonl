@@ -1,0 +1,150 @@
+{"id":"m001","kind":"project_param","key":"deploy.production","scope":"tidepool","content":"Tidepool production deploys to Railway from the main branch; the service is named tidepool-web."}
+{"id":"m002","kind":"project_param","key":"deploy.staging","scope":"tidepool","content":"Tidepool staging previews run on Vercel, one preview URL per pull request."}
+{"id":"m003","kind":"project_param","key":"package.manager","scope":"tidepool","content":"Tidepool uses pnpm 9 with a workspace; never run npm install in it, the lockfile is pnpm-lock.yaml."}
+{"id":"m004","kind":"project_param","key":"runtime.node","scope":"tidepool","content":"Tidepool pins Node 20.11.1 in .nvmrc and in the engines field of package.json."}
+{"id":"m005","kind":"project_param","key":"test.command","scope":"tidepool","content":"Run Tidepool unit tests with pnpm vitest run; Playwright end-to-end tests live under e2e/ and run with pnpm test:e2e."}
+{"id":"m006","kind":"insight","key":"test.flaky.checkout","scope":"tidepool","content":"The checkout Playwright spec flakes when the Stripe mock server on port 12111 starts after the dev server; start stripe-mock first."}
+{"id":"m007","kind":"project_param","key":"database","scope":"tidepool","content":"Tidepool stores orders in Postgres hosted on Neon, accessed through Drizzle ORM."}
+{"id":"m008","kind":"project_param","key":"env.database","scope":"tidepool","content":"Tidepool reads its database connection string from DATABASE_URL, and the pooled variant from DATABASE_URL_POOLED for serverless routes."}
+{"id":"m009","kind":"project_param","key":"api.errors","scope":"tidepool","content":"Tidepool API routes return errors as an error object with code and message fields, using snake_case codes like cart_not_found."}
+{"id":"m010","kind":"insight","key":"ci.cache","scope":"tidepool","content":"Tidepool CI on GitHub Actions misses the pnpm store cache unless the setup-node step comes after pnpm/action-setup."}
+{"id":"m011","kind":"project_param","key":"styling","scope":"tidepool","content":"Tidepool styles components with Tailwind CSS; no CSS modules in new code."}
+{"id":"m012","kind":"project_param","key":"images.cdn","scope":"tidepool","content":"Product images for Tidepool are served from Cloudinary; the cloud name comes from NEXT_PUBLIC_CLOUDINARY_CLOUD."}
+{"id":"m013","kind":"task_state","key":"task.cart.migration","scope":"tidepool","content":"Unfinished: migrating the Tidepool cart from localStorage to a server session; the API half is done, but the hook in src/hooks/useCart.ts still reads localStorage."}
+{"id":"m014","kind":"insight","key":"build.heap","scope":"tidepool","content":"next build for Tidepool runs out of heap on the 2 GB CI runner; setting NODE_OPTIONS=--max-old-space-size=4096 fixes it."}
+{"id":"m015","kind":"project_param","key":"auth","scope":"tidepool","content":"Tidepool authenticates shoppers with Auth.js magic links sent through Postmark."}
+{"id":"m016","kind":"insight","key":"error.hydration","scope":"tidepool","content":"The hydration mismatch warning on the product page comes from formatting prices with the server locale; format them on the client instead."}
+{"id":"m017","kind":"project_param","key":"lint","scope":"tidepool","content":"Tidepool uses Biome for linting and formatting instead of ESLint and Prettier."}
+{"id":"m018","kind":"project_param","key":"feature.flags","scope":"tidepool","content":"Feature flags in Tidepool are read from the flags table at request time, not from env vars."}
+{"id":"m019","kind":"task_state","key":"task.search.reindex","scope":"tidepool","content":"Unfinished: the Tidepool product search reindex job in scripts/reindex-meili.ts fails on items without a SKU; it needs a skip plus a log line."}
+{"id":"m020","kind":"project_param","key":"analytics","scope":"tidepool","content":"Tidepool sends page analytics to a self-hosted Plausible instance."}
+{"id":"m021","kind":"insight","key":"error.edge.runtime","scope":"tidepool","content":"Tidepool middleware cannot import the Drizzle client because middleware runs on the Edge runtime; query through an API route instead."}
+{"id":"m022","kind":"project_param","key":"branch.naming","scope":"tidepool","content":"Tidepool branches are named feat/<ticket> or fix/<ticket>, with tickets from the TP Linear team."}
+{"id":"m023","kind":"project_param","key":"deploy.production","scope":"ledgerline","content":"Ledgerline production runs on Fly.io in the syd region with two machines."}
+{"id":"m024","kind":"project_param","key":"deploy.staging","scope":"ledgerline","content":"Ledgerline staging deploys to Fly.io automatically when a tag matching v*-rc* is pushed."}
+{"id":"m025","kind":"project_param","key":"runtime.go","scope":"ledgerline","content":"Ledgerline builds with Go 1.23; the toolchain line in go.mod is go1.23.4."}
+{"id":"m026","kind":"project_param","key":"test.command","scope":"ledgerline","content":"Run Ledgerline tests with go test -race ./...; integration tests need the integration build tag and a running Postgres."}
+{"id":"m027","kind":"insight","key":"test.flaky.clock","scope":"ledgerline","content":"Ledgerline invoice tests flaked around midnight UTC because due dates used time.Now; they now take an injected clock from internal/clock."}
+{"id":"m028","kind":"project_param","key":"database","scope":"ledgerline","content":"Ledgerline uses Postgres 16 with migrations managed by goose in db/migrations."}
+{"id":"m029","kind":"project_param","key":"env.database","scope":"ledgerline","content":"Ledgerline reads its Postgres DSN from LEDGER_PG_DSN, not DATABASE_URL."}
+{"id":"m030","kind":"project_param","key":"api.amounts","scope":"ledgerline","content":"Ledgerline amounts are integer minor units (cents) in JSON, never floats, and currency is an ISO 4217 code."}
+{"id":"m031","kind":"project_param","key":"error.idempotency.conflict","scope":"ledgerline","content":"Ledgerline returns error code LL-4091 when an idempotency key is reused with a different request body."}
+{"id":"m032","kind":"project_param","key":"api.idempotency","scope":"ledgerline","content":"Ledgerline POST endpoints require an Idempotency-Key header; keys expire after 24 hours."}
+{"id":"m033","kind":"insight","key":"ci.golangci","scope":"ledgerline","content":"golangci-lint in Ledgerline CI times out at the default 1m; the config sets run.timeout to 5m."}
+{"id":"m034","kind":"project_param","key":"payments.provider","scope":"ledgerline","content":"Ledgerline charges cards through Adyen; the sandbox merchant account is LedgerlineTestECOM."}
+{"id":"m035","kind":"project_param","key":"env.webhook","scope":"ledgerline","content":"Ledgerline verifies Adyen webhooks with the HMAC key in ADYEN_HMAC_KEY."}
+{"id":"m036","kind":"task_state","key":"task.proration","scope":"ledgerline","content":"Unfinished: Ledgerline mid-cycle plan change proration; the calculation in internal/billing/prorate.go is written but the downgrade credit path has no tests."}
+{"id":"m037","kind":"insight","key":"error.deadlock","scope":"ledgerline","content":"Ledgerline deadlocks under load came from locking invoices before subscriptions in one handler; always lock subscription rows first."}
+{"id":"m038","kind":"project_param","key":"logging","scope":"ledgerline","content":"Ledgerline logs with log/slog in JSON format; request ids go in the req_id attribute."}
+{"id":"m039","kind":"project_param","key":"api.versioning","scope":"ledgerline","content":"Ledgerline API versions are in the path, /v1 and /v2; v1 is frozen and only receives security fixes."}
+{"id":"m040","kind":"project_param","key":"config.local","scope":"ledgerline","content":"Ledgerline local config lives in config/local.toml, which is gitignored; copy config/local.example.toml to start."}
+{"id":"m041","kind":"insight","key":"fly.release","scope":"ledgerline","content":"The Ledgerline Fly.io release command runs goose migrations; if a migration fails the deploy is aborted and machines stay on the old image."}
+{"id":"m042","kind":"project_param","key":"observability","scope":"ledgerline","content":"Ledgerline traces are exported with OpenTelemetry to Honeycomb, dataset ledgerline-prod."}
+{"id":"m043","kind":"task_state","key":"task.dunning.emails","scope":"ledgerline","content":"Unfinished: Ledgerline dunning email retries; the schedule is 1, 3 and 7 days but only the first email is wired up."}
+{"id":"m044","kind":"project_param","key":"codegen","scope":"ledgerline","content":"Ledgerline SQL queries are generated with sqlc; run make gen after editing db/queries/*.sql."}
+{"id":"m045","kind":"project_param","key":"package.manager","scope":"quarry","content":"Quarry manages Python dependencies with uv; add packages with uv add, never pip install into the venv."}
+{"id":"m046","kind":"project_param","key":"runtime.python","scope":"quarry","content":"Quarry targets Python 3.12; 3.13 breaks the pinned pyarrow wheel."}
+{"id":"m047","kind":"project_param","key":"test.command","scope":"quarry","content":"Run Quarry tests with uv run pytest -m 'not slow'; the slow marker covers tests that download sample datasets."}
+{"id":"m048","kind":"project_param","key":"orchestrator","scope":"quarry","content":"Quarry pipelines are orchestrated with Dagster; asset definitions live in quarry/assets/."}
+{"id":"m049","kind":"project_param","key":"warehouse","scope":"quarry","content":"Quarry's warehouse is DuckDB locally and MotherDuck in production."}
+{"id":"m050","kind":"project_param","key":"deploy.production","scope":"quarry","content":"Quarry's Dagster webserver and daemon deploy to Railway as two services sharing one Postgres for run storage."}
+{"id":"m051","kind":"insight","key":"test.flaky.network","scope":"quarry","content":"Quarry test_fetch_rates flakes because it hits the live exchange rate API; it should use the recorded cassette in tests/cassettes/rates.yaml."}
+{"id":"m052","kind":"project_param","key":"env.motherduck","scope":"quarry","content":"Quarry authenticates to MotherDuck with MOTHERDUCK_TOKEN; locally the variable is unset so DuckDB falls back to data/quarry.duckdb."}
+{"id":"m053","kind":"project_param","key":"style.python","scope":"quarry","content":"Quarry code is formatted with ruff format at line length 100 and type checked with mypy --strict."}
+{"id":"m054","kind":"project_param","key":"schedule.ingest","scope":"quarry","content":"Quarry's nightly ingest schedule runs at 02:30 Pacific/Auckland time."}
+{"id":"m055","kind":"insight","key":"export.memory","scope":"quarry","content":"Quarry's invoice export OOMs with pandas on the full year; the Polars lazy version streams it in under 2 GB."}
+{"id":"m056","kind":"project_param","key":"source.s3","scope":"quarry","content":"Quarry reads raw vendor files from the S3 bucket quarry-raw-landing in ap-southeast-2."}
+{"id":"m057","kind":"project_param","key":"error.exit.code","scope":"quarry","content":"Quarry exit code 75 means a source was temporarily unavailable and Dagster should retry, not alert."}
+{"id":"m058","kind":"task_state","key":"task.dbt.migration","scope":"quarry","content":"Unfinished: moving Quarry transforms from raw SQL files to dbt; staging models are ported, the marts in sql/marts/ are not."}
+{"id":"m059","kind":"insight","key":"ci.duckdb.lock","scope":"quarry","content":"Quarry CI fails with 'IO Error: Could not set lock on file' when two jobs share the DuckDB file; each job needs its own temp database path."}
+{"id":"m060","kind":"project_param","key":"data.naming","scope":"quarry","content":"Quarry column names are snake_case and timestamps are stored as UTC with an _at suffix."}
+{"id":"m061","kind":"project_param","key":"secrets","scope":"quarry","content":"Quarry secrets are pulled from Doppler at run time with doppler run; no .env files in the repo."}
+{"id":"m062","kind":"project_param","key":"alerts","scope":"quarry","content":"Quarry failure alerts go to the #data-alerts Slack channel through a Dagster sensor."}
+{"id":"m063","kind":"project_param","key":"config.sources","scope":"quarry","content":"Quarry's source registry is config/sources.yaml; each entry needs an owner and a freshness SLA in hours."}
+{"id":"m064","kind":"insight","key":"partitions.timezone","scope":"quarry","content":"Quarry daily partitions shifted by a day because Dagster used UTC; the partition definition now sets timezone Pacific/Auckland."}
+{"id":"m065","kind":"project_param","key":"retention","scope":"quarry","content":"Quarry keeps raw landing files for 90 days, then an S3 lifecycle rule moves them to Glacier."}
+{"id":"m066","kind":"project_param","key":"notebooks","scope":"quarry","content":"Exploratory Quarry notebooks go in notebooks/ and are stripped of outputs by nbstripout in a pre-commit hook."}
+{"id":"m067","kind":"project_param","key":"package.manager","scope":"fernweh","content":"Fernweh uses Yarn 4 (Berry) with the node-modules linker because Metro does not support Plug'n'Play."}
+{"id":"m068","kind":"project_param","key":"runtime.expo","scope":"fernweh","content":"Fernweh is on Expo SDK 51 with React Native 0.74."}
+{"id":"m069","kind":"project_param","key":"build","scope":"fernweh","content":"Fernweh app binaries are built with EAS Build; the production profile is in eas.json."}
+{"id":"m070","kind":"project_param","key":"test.command","scope":"fernweh","content":"Run Fernweh tests with yarn jest; Detox end-to-end tests run only on the macOS runner with yarn e2e:ios."}
+{"id":"m071","kind":"insight","key":"test.flaky.detox","scope":"fernweh","content":"Fernweh Detox tests flake on the iOS simulator when animations are on; the test build sets EXPO_PUBLIC_DISABLE_ANIMATIONS=1."}
+{"id":"m072","kind":"project_param","key":"backend","scope":"fernweh","content":"Fernweh talks to a Supabase backend for auth, trips and photos."}
+{"id":"m073","kind":"project_param","key":"env.supabase","scope":"fernweh","content":"Fernweh reads the Supabase URL and anon key from EXPO_PUBLIC_SUPABASE_URL and EXPO_PUBLIC_SUPABASE_ANON_KEY."}
+{"id":"m074","kind":"project_param","key":"release.ota","scope":"fernweh","content":"Fernweh ships JavaScript-only fixes as EAS Update over-the-air updates on the production channel; native changes need a store build."}
+{"id":"m075","kind":"insight","key":"error.android.build","scope":"fernweh","content":"Fernweh Android builds fail with 'Duplicate class kotlin.collections.jdk8' after adding the maps library; forcing kotlin-stdlib 1.9.24 in android/build.gradle fixes it."}
+{"id":"m076","kind":"project_param","key":"state","scope":"fernweh","content":"Fernweh state management uses Zustand stores in src/stores; no Redux."}
+{"id":"m077","kind":"project_param","key":"navigation","scope":"fernweh","content":"Fernweh navigation uses Expo Router with file-based routes under app/."}
+{"id":"m078","kind":"project_param","key":"i18n","scope":"fernweh","content":"Fernweh supports English, German and Japanese; translation strings live in locales/*.json and are managed in Tolgee."}
+{"id":"m079","kind":"task_state","key":"task.offline.maps","scope":"fernweh","content":"Unfinished: Fernweh offline map tiles; downloading works, but the cache eviction in src/maps/tileCache.ts never deletes old regions."}
+{"id":"m080","kind":"insight","key":"ios.review","scope":"fernweh","content":"Fernweh App Store review rejected the build because NSLocationAlwaysUsageDescription was vague; the string must say why background location is needed."}
+{"id":"m081","kind":"project_param","key":"crash.reporting","scope":"fernweh","content":"Fernweh crash reports go to Sentry; source maps are uploaded by the EAS post-build hook."}
+{"id":"m082","kind":"project_param","key":"min.os","scope":"fernweh","content":"Fernweh supports iOS 15 and Android API level 26 as minimums."}
+{"id":"m083","kind":"insight","key":"error.hermes.intl","scope":"fernweh","content":"Fernweh crashes on launch with 'Property Intl is not defined' on older Android because Hermes lacks Intl.DateTimeFormat there; the polyfill is imported in app/_layout.tsx."}
+{"id":"m084","kind":"project_param","key":"api.writes","scope":"fernweh","content":"Fernweh reads Supabase tables directly, but all writes go through Postgres RPC functions prefixed with fw_."}
+{"id":"m085","kind":"project_param","key":"design.tokens","scope":"fernweh","content":"Fernweh colors and spacing come from src/theme/tokens.ts; don't hardcode hex values in components."}
+{"id":"m086","kind":"project_param","key":"deploy.staging","scope":"fernweh","content":"Fernweh internal testers get staging builds through TestFlight and the Play Console internal track."}
+{"id":"m087","kind":"task_state","key":"task.push.notifications","scope":"fernweh","content":"Unfinished: Fernweh trip reminder push notifications; Expo push tokens are saved but the scheduling edge function is not deployed."}
+{"id":"m088","kind":"insight","key":"metro.cache","scope":"fernweh","content":"When Fernweh shows stale code after switching branches, clear the Metro cache with npx expo start -c."}
+{"id":"m089","kind":"project_param","key":"runtime.msrv","scope":"brasswind","content":"Brasswind's minimum supported Rust version is 1.79, declared as rust-version in Cargo.toml."}
+{"id":"m090","kind":"project_param","key":"test.command","scope":"brasswind","content":"Run Brasswind tests with cargo nextest run; doctests still need cargo test --doc separately."}
+{"id":"m091","kind":"insight","key":"test.flaky.tempdir","scope":"brasswind","content":"Brasswind snapshot tests flaked in parallel because they shared a fixed temp directory; each test now creates its own with tempfile::tempdir."}
+{"id":"m092","kind":"project_param","key":"release","scope":"brasswind","content":"Brasswind releases are built by cargo-dist for Linux, macOS and Windows and published to GitHub Releases."}
+{"id":"m093","kind":"project_param","key":"distribution","scope":"brasswind","content":"Brasswind is distributed through a Homebrew tap named brasswind-labs/tap and on crates.io."}
+{"id":"m094","kind":"project_param","key":"error.handling","scope":"brasswind","content":"Brasswind uses anyhow in the binary crate and thiserror in the library crate."}
+{"id":"m095","kind":"project_param","key":"cli.parser","scope":"brasswind","content":"Brasswind parses arguments with clap 4 derive macros."}
+{"id":"m096","kind":"project_param","key":"config.path","scope":"brasswind","content":"Brasswind reads user config from ~/.config/brasswind/config.toml, overridden by BRASSWIND_CONFIG."}
+{"id":"m097","kind":"project_param","key":"error.exit.code","scope":"brasswind","content":"Brasswind exits with status 3 when the lockfile is out of date, so scripts can tell it apart from a general failure (1)."}
+{"id":"m098","kind":"insight","key":"ci.windows.paths","scope":"brasswind","content":"Brasswind Windows CI failed on path tests because of backslashes; tests compare paths with dunce::canonicalize instead of strings."}
+{"id":"m099","kind":"project_param","key":"style.rust","scope":"brasswind","content":"Brasswind CI runs cargo clippy with -D warnings and cargo fmt --check; pedantic lints are off."}
+{"id":"m100","kind":"insight","key":"performance.scan","scope":"brasswind","content":"Brasswind directory scanning got 4x faster after switching from walkdir to the ignore crate with parallel walking."}
+{"id":"m101","kind":"task_state","key":"task.shell.completions","scope":"brasswind","content":"Unfinished: Brasswind shell completions; bash and zsh are generated in build.rs, fish and PowerShell are not."}
+{"id":"m102","kind":"project_param","key":"dependency.policy","scope":"brasswind","content":"Brasswind audits dependencies with cargo-deny; licenses must be MIT, Apache-2.0 or BSD."}
+{"id":"m103","kind":"project_param","key":"env.color","scope":"brasswind","content":"Brasswind honours NO_COLOR and its own BRASSWIND_COLOR=always|never|auto."}
+{"id":"m104","kind":"insight","key":"error.musl.openssl","scope":"brasswind","content":"Brasswind musl release builds failed linking openssl; switching reqwest to the rustls-tls feature removed the OpenSSL dependency."}
+{"id":"m105","kind":"project_param","key":"http.blocking","scope":"brasswind","content":"Brasswind avoids async entirely; HTTP calls use ureq, blocking."}
+{"id":"m106","kind":"project_param","key":"lockfile.schema","scope":"brasswind","content":"The brasswind.lock file format is versioned by a top-level schema = 2 line; bump it when fields change."}
+{"id":"m107","kind":"insight","key":"error.char.boundary","scope":"brasswind","content":"Brasswind panicked with 'byte index is not a char boundary' when truncating non-ASCII package names; truncation now uses char_indices."}
+{"id":"m108","kind":"project_param","key":"docs","scope":"brasswind","content":"Brasswind user docs are an mdBook in docs/book, deployed to GitHub Pages on each release."}
+{"id":"m109","kind":"task_state","key":"task.plugin.api","scope":"brasswind","content":"Unfinished: Brasswind WASM plugin API; the wasmtime host bindings compile but the plugin manifest schema is undecided."}
+{"id":"m110","kind":"project_param","key":"benchmarks","scope":"brasswind","content":"Brasswind benchmarks use criterion in benches/; compare against the saved main baseline before merging performance changes."}
+{"id":"m111","kind":"project_param","key":"runtime.elixir","scope":"oriel","content":"Oriel runs Elixir 1.17 on Erlang/OTP 27, pinned in .tool-versions for asdf."}
+{"id":"m112","kind":"project_param","key":"deploy.staging","scope":"oriel","content":"Oriel staging deploys to Fly.io in the lhr region, app name oriel-staging."}
+{"id":"m113","kind":"project_param","key":"deploy.production","scope":"oriel","content":"Oriel production runs on Render as a Docker service with a managed Postgres."}
+{"id":"m114","kind":"project_param","key":"test.command","scope":"oriel","content":"Run Oriel tests with mix test; browser tests use Wallaby and need chromedriver on PATH."}
+{"id":"m115","kind":"insight","key":"test.flaky.sandbox","scope":"oriel","content":"Oriel LiveView tests flake with DBConnection.OwnershipError when a spawned Task touches the repo; allow the task pid in the Ecto sandbox."}
+{"id":"m116","kind":"project_param","key":"database","scope":"oriel","content":"Oriel uses Postgres 15 through Ecto; migrations are in priv/repo/migrations."}
+{"id":"m117","kind":"project_param","key":"env.secrets","scope":"oriel","content":"Oriel reads its Phoenix signing secret from SECRET_KEY_BASE and the database from ORIEL_DATABASE_URL."}
+{"id":"m118","kind":"project_param","key":"auth","scope":"oriel","content":"Oriel staff sign in with Google Workspace SSO via ueberauth_google; only the oriel-ops.test domain is allowed."}
+{"id":"m119","kind":"project_param","key":"jobs","scope":"oriel","content":"Oriel background jobs run with Oban; queues are default, mailers and exports with limits 10, 5 and 2."}
+{"id":"m120","kind":"insight","key":"error.oban.attempts","scope":"oriel","content":"Oriel export jobs got discarded after 20 attempts during an S3 outage; max_attempts for the exports queue is now 5 with exponential backoff."}
+{"id":"m121","kind":"project_param","key":"ui","scope":"oriel","content":"Oriel UI is Phoenix LiveView with Tailwind and the core_components.ex function components; no React."}
+{"id":"m122","kind":"project_param","key":"style.elixir","scope":"oriel","content":"Oriel CI runs mix format --check-formatted and mix credo --strict."}
+{"id":"m123","kind":"task_state","key":"task.audit.log","scope":"oriel","content":"Unfinished: Oriel audit log for admin actions; the audit_events table exists but only user deletions write to it."}
+{"id":"m124","kind":"insight","key":"release.migrations","scope":"oriel","content":"Oriel migrations run from the release with bin/oriel eval 'Oriel.Release.migrate()' as Render's pre-deploy command."}
+{"id":"m125","kind":"project_param","key":"api.format","scope":"oriel","content":"Oriel's internal JSON API uses JSON:API style with a data envelope and kebab-case attribute names."}
+{"id":"m126","kind":"project_param","key":"error.locked","scope":"oriel","content":"Oriel returns HTTP 423 with code ORL-LOCKED when another admin is editing the same record."}
+{"id":"m127","kind":"insight","key":"clustering","scope":"oriel","content":"Oriel nodes on Fly.io did not cluster until DNS_CLUSTER_QUERY was set to oriel-staging.internal."}
+{"id":"m128","kind":"project_param","key":"authorisation","scope":"oriel","content":"Oriel authorisation rules live in lib/oriel/policy.ex using the Bodyguard behaviour."}
+{"id":"m129","kind":"task_state","key":"task.csv.export","scope":"oriel","content":"Unfinished: Oriel CSV export for the customers table times out above 50k rows; the plan is to stream it through an Oban job and email a link."}
+{"id":"m130","kind":"insight","key":"liveview.memory","scope":"oriel","content":"Oriel LiveView processes held large assigns for the reports page; using streams for the table rows cut memory per connection by about 80 percent."}
+{"id":"m131","kind":"project_param","key":"email","scope":"oriel","content":"Oriel sends email with Swoosh through the Postmark adapter."}
+{"id":"m132","kind":"project_param","key":"feature.flags","scope":"oriel","content":"Oriel feature flags use FunWithFlags backed by Postgres, toggled from /admin/flags."}
+{"id":"m133","kind":"preference","key":"editor","scope":"shared","content":"The developer uses Neovim with LazyVim; suggest editor tips for Neovim, not VS Code."}
+{"id":"m134","kind":"preference","key":"style.indentation","scope":"shared","content":"Prefer two-space indentation in JavaScript, TypeScript, YAML and Elixir; tabs only where gofmt demands them."}
+{"id":"m135","kind":"preference","key":"git.commits","scope":"shared","content":"Commit messages follow Conventional Commits, with a lowercase imperative subject under 72 characters."}
+{"id":"m136","kind":"preference","key":"communication","scope":"shared","content":"Keep explanations short; show the command or diff first, then one line of reasoning."}
+{"id":"m137","kind":"preference","key":"shell","scope":"shared","content":"The developer's shell is fish, so avoid bash-only syntax like export VAR=value in suggested commands."}
+{"id":"m138","kind":"preference","key":"git.workflow","scope":"shared","content":"Always rebase feature branches onto main instead of merging main into them."}
+{"id":"m139","kind":"preference","key":"testing.bugs","scope":"shared","content":"Write a failing test before fixing a bug whenever the bug is reproducible."}
+{"id":"m140","kind":"insight","key":"docker.arm64","scope":"shared","content":"On the developer's ARM laptop, Docker images without a linux/arm64 variant run under emulation and are very slow; build multi-arch images."}
+{"id":"m141","kind":"preference","key":"dependencies.new","scope":"shared","content":"Ask before adding a new third-party dependency to any project."}
+{"id":"m142","kind":"preference","key":"naming","scope":"shared","content":"Use descriptive variable names; no single-letter names outside short loops."}
+{"id":"m143","kind":"preference","key":"comments","scope":"shared","content":"Code comments should explain why, not what; don't narrate obvious code."}
+{"id":"m144","kind":"project_param","key":"secrets.manager","scope":"shared","content":"Personal secrets and API tokens live in 1Password; retrieve them with the op CLI rather than pasting them into files."}
+{"id":"m145","kind":"preference","key":"pr.size","scope":"shared","content":"Keep pull requests under about 400 changed lines; split larger work into stacked PRs."}
+{"id":"m146","kind":"preference","key":"theme","scope":"shared","content":"The developer uses the Catppuccin Mocha theme in the terminal and editor."}
+{"id":"m147","kind":"insight","key":"git.hooks","scope":"shared","content":"Pre-commit hooks across projects are managed with lefthook, installed with lefthook install after cloning."}
+{"id":"m148","kind":"preference","key":"timezone","scope":"shared","content":"The developer works in the Pacific/Auckland time zone; schedule reminders in NZ time."}
+{"id":"m149","kind":"preference","key":"dependencies.updates","scope":"shared","content":"Batch dependency updates weekly through Renovate; don't bump versions ad hoc in feature PRs."}
+{"id":"m150","kind":"task_state","key":"task.dotfiles","scope":"shared","content":"Unfinished: moving dotfiles to chezmoi; fish and Neovim configs are migrated, git config is not."}

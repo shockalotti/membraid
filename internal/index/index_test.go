@@ -270,9 +270,14 @@ func TestTornTailDoesNotPoisonLaterWrites(t *testing.T) {
 	if _, err := fresh.ImportAll(); err != nil {
 		t.Fatalf("replay must survive a crash fragment: %v", err)
 	}
-	for _, q := range []string{"before crash", "after crash"} {
-		if hits, _ := fresh.Search(q, "*", 10); len(hits) != 1 {
-			t.Errorf("%q: want the memory back after a rebuild, got %d hits", q, len(hits))
+	hits, _ := fresh.Search("crash", "*", 10)
+	got := map[string]bool{}
+	for _, h := range hits {
+		got[h.Content] = true
+	}
+	for _, want := range []string{"written before the crash", "written after the crash"} {
+		if !got[want] {
+			t.Errorf("want %q back after a rebuild, got %v", want, got)
 		}
 	}
 }

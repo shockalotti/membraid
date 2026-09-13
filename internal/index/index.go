@@ -667,20 +667,6 @@ type Hit struct {
 	ScopeName string `json:"scope_name,omitempty"`
 }
 
-// ftsQuery quotes every token as a literal: FTS5 MATCH takes a query language,
-// and "fly.io" or a stray hyphen is a syntax error in it.
-func ftsQuery(q string) string {
-	fields := strings.Fields(q)
-	if len(fields) == 0 {
-		return `""`
-	}
-	quoted := make([]string, 0, len(fields))
-	for _, f := range fields {
-		quoted = append(quoted, `"`+strings.ReplaceAll(f, `"`, `""`)+`"`)
-	}
-	return strings.Join(quoted, " ")
-}
-
 // Search runs FTS over current rows, with the scope predicate pushed into the
 // query so a busy unrelated project cannot starve the results.
 func (ix *Index) Search(q, scope string, limit int) ([]Hit, error) {
