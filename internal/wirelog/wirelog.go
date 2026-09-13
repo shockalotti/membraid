@@ -182,6 +182,21 @@ func (l *Log) Append(v any) error {
 	if err := l.rotateLocked(time.Now().UTC()); err != nil {
 		return err
 	}
+	// A crash or a full disk can leave a partial line at the end of the file,
+	// from this process or any other. Appending straight after it would glue
+	// this record onto the fragment, making one corrupt line in the middle of
+	// the file, which replay refuses: nothing this machine wrote afterwards
+	// would ever import again. So start on a fresh line. The fragment becomes a
+	// line of its own, which replay skips as a write that never completed. Two
+	// writers that both see it each add a newline, and a blank line is skipped
+	// too.
+	torn, err := endsMidLine(l.f)
+	if err != nil {
+		return fmt.Errorf("wirelog: check tail: %w", err)
+	}
+	if torn {
+		buf = append([]byte{'\n'}, buf...)
+	}
 	if _, err := l.f.Write(buf); err != nil {
 		return fmt.Errorf("wirelog: append: %w", err)
 	}
@@ -207,12 +222,26 @@ func (l *Log) rotateLocked(now time.Time) error {
 		_ = l.f.Close()
 		l.f = nil
 	}
-	f, err := os.OpenFile(filepath.Join(l.dir, want), os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0o600)
+	// Read as well as append: Append checks the last byte for a torn line.
+	f, err := os.OpenFile(filepath.Join(l.dir, want), os.O_CREATE|os.O_RDWR|os.O_APPEND, 0o600)
 	if err != nil {
 		return fmt.Errorf("wirelog: open %s: %w", want, err)
 	}
 	l.f, l.name = f, want
 	return nil
+}
+
+// endsMidLine reports whether a non-empty file lacks a final newline.
+func endsMidLine(f *os.File) (bool, error) {
+	fi, err := f.Stat()
+	if err != nil || fi.Size() == 0 {
+		return false, err
+	}
+	last := make([]byte, 1)
+	if _, err := f.ReadAt(last, fi.Size()-1); err != nil {
+		return false, err
+	}
+	return last[0] != '\n', nil
 }
 
 func (l *Log) Close() error {
@@ -328,6 +357,14 @@ func ReadFrom(path string, offset int64) ([]Entry, int64, error) {
 		}
 		e, derr := decode(raw, fmt.Sprintf("%s@%d", filepath.Base(path), lineStart))
 		if derr != nil {
+			// Not JSON at all: the remains of a write that never completed,
+			// now followed by later lines because the next writer started a
+			// fresh line (see Append). No record was ever committed from it,
+			// so skipping it loses nothing. A complete JSON record this binary
+			// cannot read is a different failure, and still refuses (SPEC §5.3).
+			if !json.Valid(raw) {
+				continue
+			}
 			return out, lineStart, derr
 		}
 		out = append(out, *e)

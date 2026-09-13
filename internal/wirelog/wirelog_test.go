@@ -133,9 +133,59 @@ func TestReadFromRefusesUnknownVersionAndType(t *testing.T) {
 	}
 }
 
+// A complete JSON record this binary cannot read is refused, never dropped:
+// it is a record that exists.
 func TestReadFromRefusesCorruptCompleteLine(t *testing.T) {
-	if _, _, err := ReadFrom(writeFile(t, "{not json}\n"), 0); !errors.Is(err, ErrCorrupt) {
+	body := `{"v":1,"t":"write","ts":"2026-09-13T10:00:00Z","id":5}` + "\n"
+	if _, _, err := ReadFrom(writeFile(t, body), 0); !errors.Is(err, ErrCorrupt) {
 		t.Fatalf("want ErrCorrupt, got %v", err)
+	}
+}
+
+// A line that is not JSON at all is what a crash mid-append leaves once the
+// next writer starts a fresh line after it. No record was committed from it,
+// so replay skips it and reads on, instead of refusing everything after it.
+func TestReadFromSkipsCrashFragmentMidFile(t *testing.T) {
+	good := func(id string) string {
+		b, _ := json.Marshal(WriteLine{Header: NewHeader(TypeWrite, time.Now()), ID: id, Scope: "shared", Source: "t", Kind: "insight", Content: "c", Superseded: []Superseded{}})
+		return string(b) + "\n"
+	}
+	body := good("a") + `{"v":1,"t":"write","ts":"2026-09-13T10:00:00Z","id":"tor` + "\n" + good("b")
+	es, pos, err := ReadFrom(writeFile(t, body), 0)
+	if err != nil {
+		t.Fatalf("a crash fragment must not stop replay: %v", err)
+	}
+	if len(es) != 2 || es[0].Write.ID != "a" || es[1].Write.ID != "b" {
+		t.Errorf("want records a and b around the fragment, got %d entries", len(es))
+	}
+	if pos != int64(len(body)) {
+		t.Errorf("want to read past the fragment to %d, stopped at %d", len(body), pos)
+	}
+}
+
+// After a torn tail, the next Append starts on a fresh line rather than
+// gluing its record onto the fragment.
+func TestAppendAfterTornTailStartsFreshLine(t *testing.T) {
+	dir := t.TempDir()
+	l, _ := Open(dir, "h")
+	defer l.Close()
+	now := time.Now()
+	if err := l.Append(CloseLine{Header: NewHeader(TypeClose, now), ID: "first", Reason: "done"}); err != nil {
+		t.Fatal(err)
+	}
+	files, _ := Files(dir)
+	f, _ := os.OpenFile(files[0], os.O_WRONLY|os.O_APPEND, 0)
+	f.WriteString(`{"v":1,"t":"clo`)
+	f.Close()
+	if err := l.Append(CloseLine{Header: NewHeader(TypeClose, now), ID: "second", Reason: "done"}); err != nil {
+		t.Fatal(err)
+	}
+	es, _, err := ReadFrom(files[0], 0)
+	if err != nil {
+		t.Fatalf("replay after a torn tail: %v", err)
+	}
+	if len(es) != 2 || es[1].Close.ID != "second" {
+		t.Errorf("want both records readable, got %d", len(es))
 	}
 }
 

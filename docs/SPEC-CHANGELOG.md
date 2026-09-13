@@ -8,6 +8,34 @@ next agent in the loop.
 
 ---
 
+## v1.14.2 (implementation amendment, found by a stress test)
+
+**§5.3: a line that is not JSON is skipped wherever it sits, and writers start
+a fresh line after a torn tail.** v1.14 skipped a truncated *final* line and
+refused a partial line anywhere else as corruption. That rule was only safe if
+nothing is ever appended after a crash, which is false: the next write, from any
+process, follows the fragment. Appending straight after it glued the new record
+onto the fragment, producing one corrupt line mid-file, and replay then refused
+the file forever - so a single crash or full disk made everything that machine
+wrote afterwards unimportable, on rebuild and on every other machine. A test
+that appends a fragment and then writes again reproduced it.
+
+The writer now checks the last byte before each append and prefixes a newline
+when the file ends mid-line, so a fragment is always a line of its own; two
+writers racing on the same fragment leave a blank line, which is skipped. The
+reader skips any line that is not valid JSON, because such a line can only be a
+write that never completed. A complete JSON record that fails to decode still
+refuses, as does an unknown `v`: those are records that exist. The line format
+itself is unchanged, so no `v` bump.
+
+The same stress test found two index defects that are implementation, not
+spec: write transactions began as reads and failed with SQLITE_BUSY_SNAPSHOT
+when another process committed first (now `BEGIN IMMEDIATE`), and every open
+rewrote the schema and every import took the write lock even with nothing new
+(now both skipped when current).
+
+---
+
 ## v1.14.1 (decision close-out, not a review round)
 
 Both reviewers concurred that prose review had reached diminishing returns and

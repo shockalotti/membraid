@@ -125,7 +125,14 @@ The plan assumed one process and one client at a time. In practice several
 harnesses run their own MCP server against one vault at once (on the minipc,
 Hermes alone runs two). What holds that together today: SQLite in WAL mode with
 a busy timeout, one append-only log file per host, and a file lock around git
-sync. Nothing yet tests many simultaneous writers; a stress test is planned.
+sync. `TestStressManyClientsOneVault` drives that shape hard: 4 long-lived MCP
+servers and 4 streams of CLI processes writing 400 memories, half racing on
+one key, while searches and syncs run throughout; then it rebuilds the index
+from the log and clones the remote, and both must match exactly. Its first run
+found three real bugs, all fixed: write transactions failed with "database is
+locked" instead of waiting, a per-connection WAL switch failed the same way,
+and a crash fragment in the log made every later write from that machine
+unimportable (SPEC §5.3, amended in v1.14.2). It runs in CI.
 
 Local only: each machine works on its own clone, and git is the only thing that
 crosses the network.
@@ -137,7 +144,7 @@ does not exist on day one, and each is cheap to add when it does.
 
 | Deferred | SPEC ref | Wait for |
 |---|---|---|
-| Daemon + stdio shim, flock, spawn races | §3.1 | Concurrent clients now exist without a daemon; a flock guards git sync only. Revisit if the stress test finds problems |
+| Daemon + stdio shim, flock, spawn races | §3.1 | Concurrent clients run without a daemon, and the stress test passes: SQLite serialises writers and a flock guards git sync. Revisit only if a daemon is needed for something else |
 | Windows loopback, pid+nonce handshake | §3.1 | Windows support. The binary builds for Windows and has a Windows lock file, but is untested, and the Claude Code hook `install` writes uses bash syntax. Deferred by choice |
 | REST API, TLS, bearer tokens, token->source | §11, §12 | Remote or non-MCP consumers |
 | `backup` online API + capture order | §3.3 | Data worth backing up |

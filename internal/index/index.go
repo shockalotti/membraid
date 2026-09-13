@@ -39,20 +39,60 @@ type Index struct {
 	now func() time.Time
 }
 
+// Open opens the index. Transactions take the write lock when they begin
+// (_txlock=immediate). Every write here reads before it writes; a transaction
+// that starts as a read and upgrades after another process committed fails at
+// once with SQLITE_BUSY_SNAPSHOT, and busy_timeout does not cover that case.
+// With several harnesses writing to one vault that happened within a second.
+// Taking the lock up front makes writers queue behind busy_timeout instead.
 func Open(path string, log *wirelog.Log) (*Index, error) {
-	db, err := sql.Open("sqlite", path+"?_pragma=journal_mode(WAL)&_pragma=busy_timeout(5000)")
+	// Only busy_timeout is set per connection. journal_mode is not: WAL is
+	// stored in the database file, and switching mode can return SQLITE_BUSY
+	// without consulting busy_timeout, so repeating the switch on every new
+	// connection failed whenever another process was writing. It is set once,
+	// when the schema is created.
+	db, err := sql.Open("sqlite", path+"?_pragma=busy_timeout(5000)&_txlock=immediate")
 	if err != nil {
 		return nil, fmt.Errorf("index: open: %w", err)
 	}
-	if _, err := db.Exec(schemaSQL); err != nil {
+	// Every command opens the index, so creating the schema is skipped when it
+	// is already current: each CREATE takes the write lock, and doing that on
+	// every open made each command queue behind every writer.
+	var version int
+	if err := db.QueryRow(`PRAGMA user_version`).Scan(&version); err != nil {
 		db.Close()
-		return nil, fmt.Errorf("index: schema: %w", err)
+		return nil, fmt.Errorf("index: open: %w", err)
 	}
-	if _, err := db.Exec(fmt.Sprintf("PRAGMA user_version = %d", schemaVersion)); err != nil {
-		db.Close()
-		return nil, err
+	if version != schemaVersion {
+		if err := enableWAL(db); err != nil {
+			db.Close()
+			return nil, fmt.Errorf("index: wal: %w", err)
+		}
+		if _, err := db.Exec(schemaSQL); err != nil {
+			db.Close()
+			return nil, fmt.Errorf("index: schema: %w", err)
+		}
+		if _, err := db.Exec(fmt.Sprintf("PRAGMA user_version = %d", schemaVersion)); err != nil {
+			db.Close()
+			return nil, err
+		}
 	}
 	return &Index{db: db, log: log, now: func() time.Time { return time.Now().UTC() }}, nil
+}
+
+// enableWAL switches a new index to write-ahead logging. Several processes can
+// create the same index at once (every harness starting on a fresh vault), and
+// the switch returns SQLITE_BUSY without waiting, so it is retried briefly.
+func enableWAL(db *sql.DB) error {
+	var err error
+	for attempt := 0; attempt < 50; attempt++ {
+		var mode string
+		if err = db.QueryRow(`PRAGMA journal_mode=WAL`).Scan(&mode); err == nil {
+			return nil
+		}
+		time.Sleep(20 * time.Millisecond)
+	}
+	return err
 }
 
 func (ix *Index) Close() error                { return ix.db.Close() }
@@ -364,6 +404,9 @@ func (ix *Index) ImportAll() (int, error) {
 // rolls the whole import back, so no position ever moves past a line that was
 // not applied.
 func (ix *Index) ImportLog(files []string) (int, error) {
+	if !ix.logGrew(files) {
+		return 0, nil
+	}
 	tx, err := ix.db.Begin()
 	if err != nil {
 		return 0, err
@@ -427,6 +470,25 @@ func (ix *Index) ImportLog(files []string) (int, error) {
 // only kind that can be closed without a replacement: a preference or a project
 // value is superseded by its successor, but a finished task has no successor,
 // and without this it sits in "where you left off" forever.
+// logGrew reports whether any log file differs in size from where this index
+// last stopped reading. Nothing new is the common case, because every command
+// and every MCP tool call imports first, so it is checked without a
+// transaction: a write transaction takes the database's write lock, and doing
+// that on every read would queue each search behind every writer on the machine.
+func (ix *Index) logGrew(files []string) bool {
+	for _, f := range files {
+		fi, err := os.Stat(f)
+		if err != nil {
+			return true
+		}
+		var pos int64
+		if err := ix.db.QueryRow(`SELECT pos FROM log_offsets WHERE file=?`, filepath.Base(f)).Scan(&pos); err != nil || fi.Size() != pos {
+			return true
+		}
+	}
+	return false
+}
+
 func (ix *Index) Done(scope, key, id string) ([]string, error) {
 	var targets []string
 	if id != "" {

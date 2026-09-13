@@ -239,6 +239,44 @@ func TestForgetSurvivesRebuild(t *testing.T) {
 	}
 }
 
+// A crash, or a full disk, can leave half a line at the end of a log file.
+// The next write, from a new process, must not glue itself onto that fragment.
+// If it did, the file would hold a corrupt line in the middle, which replay
+// refuses (SPEC §5.3), and nothing this machine wrote after the crash would
+// ever import anywhere again: not on a rebuild, not on another machine.
+func TestTornTailDoesNotPoisonLaterWrites(t *testing.T) {
+	dir := t.TempDir()
+	before := newIndexAt(t, dir, "a")
+	if _, err := before.Write(Memory{Kind: KindInsight, Content: "written before the crash", Source: "x"}); err != nil {
+		t.Fatal(err)
+	}
+	files, _ := filepath.Glob(filepath.Join(dir, ".hot", "writes-*-a.jsonl"))
+	if len(files) != 1 {
+		t.Fatalf("want one log file, got %v", files)
+	}
+	f, err := os.OpenFile(files[0], os.O_WRONLY|os.O_APPEND, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	f.WriteString(`{"v":1,"t":"write","ts":"2026-09-13T10:00:00Z","id":"torn`)
+	f.Close()
+
+	after := newIndexAt(t, dir, "a")
+	if _, err := after.Write(Memory{Kind: KindInsight, Content: "written after the crash", Source: "x"}); err != nil {
+		t.Fatal(err)
+	}
+
+	fresh := newIndexAt(t, dir, "fresh")
+	if _, err := fresh.ImportAll(); err != nil {
+		t.Fatalf("replay must survive a crash fragment: %v", err)
+	}
+	for _, q := range []string{"before crash", "after crash"} {
+		if hits, _ := fresh.Search(q, "*", 10); len(hits) != 1 {
+			t.Errorf("%q: want the memory back after a rebuild, got %d hits", q, len(hits))
+		}
+	}
+}
+
 // Rescope is logged, so a moved project stays moved on every machine. Before
 // this, rescope only touched the local index and a clone put the memories
 // straight back in the old scope.

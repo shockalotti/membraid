@@ -711,9 +711,18 @@ exotic one.
   one (§3.3): the write never completed, so no committed index row corresponds
   to it and skipping loses nothing. An unknown `v` is a *complete* record this
   binary cannot interpret, which is a version problem and must stop replay
-  rather than silently drop a record that exists. A partial line anywhere but
-  at the end of a file is neither - it is corruption, and refuses like an
-  unknown `v`.
+  rather than silently drop a record that exists. **A line that is not JSON at
+  all is a crash remnant wherever it sits, and is skipped.** Before appending,
+  a writer checks that the file ends in a newline and, if it does not, starts
+  its record on a fresh line; otherwise its record would be glued onto the
+  fragment of a crashed write, and one crash would make everything the machine
+  wrote afterwards unreadable. So a fragment followed by later lines is the
+  same event as a partial final line - a write that never completed - and
+  skipping it loses nothing. A *complete* JSON record that fails to decode (a
+  wrong field type, say) is corruption, and refuses like an unknown `v`.
+  *(Implementation note: amended when a stress test showed a torn tail
+  poisoning every later write; the original text refused any partial line
+  that was not the last.)*
 - **Bumping `v` is a writer-side obligation, and old parsers are kept
   forever.** The rules above say what a reader does with a `v` it does not
   know; this says when a writer must produce a new one. **Any** change to a
