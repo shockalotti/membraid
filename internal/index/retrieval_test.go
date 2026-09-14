@@ -159,3 +159,52 @@ func TestDigestKeepsRoomForPreferences(t *testing.T) {
 		t.Errorf("want 12 items, got %d", len(got))
 	}
 }
+
+// A checkpoint carries only what changed since the last one, so its size
+// follows activity rather than the store. Replaying a run of them on another
+// machine still arrives at every retrieval and every use.
+func TestCheckpointsCarryOnlyChanges(t *testing.T) {
+	dir := t.TempDir()
+	clock := time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)
+	tick := func() time.Time { return clock }
+	a := newIndexAt(t, dir, "a")
+	a.SetClock(tick)
+	var ids []string
+	for i := 0; i < 20; i++ {
+		w, _ := a.Write(Memory{Kind: KindInsight, Content: fmt.Sprintf("fact %d", i), Source: "x"})
+		ids = append(ids, w.ID)
+	}
+	a.Touch(ids)
+	a.MarkUsed(ids[:5], "x", 1)
+	clock = clock.Add(time.Minute)
+	if n, err := a.Checkpoint(0); err != nil || n != 25 {
+		t.Fatalf("the first checkpoint carries everything: %d %v", n, err)
+	}
+
+	clock = clock.Add(time.Minute)
+	a.Touch(ids[7:8])
+	a.MarkUsed(ids[7:8], "x", 1)
+	clock = clock.Add(time.Minute)
+	if n, err := a.Checkpoint(0); err != nil || n != 2 {
+		t.Fatalf("a later checkpoint carries only the changed row and heat: %d %v", n, err)
+	}
+	clock = clock.Add(time.Minute)
+	if n, _ := a.Checkpoint(0); n != 0 {
+		t.Errorf("nothing changed, nothing written, got %d", n)
+	}
+
+	b := newIndexAt(t, dir, "b")
+	b.SetClock(tick)
+	if _, err := b.ImportAll(); err != nil {
+		t.Fatal(err)
+	}
+	for _, id := range ids {
+		if lastRetrieved(t, b, id) == "" {
+			t.Errorf("b must learn every retrieval from the run of checkpoints, missing %s", id)
+		}
+	}
+	whys, _ := b.explain([]Hit{{ID: ids[0], Kind: KindInsight, Scope: ScopeShared}, {ID: ids[7], Kind: KindInsight, Scope: ScopeShared}})
+	if whys[ids[0]].Uses < 0.9 || whys[ids[7]].Uses < 0.9 {
+		t.Errorf("b must learn uses from both checkpoints: %+v %+v", whys[ids[0]], whys[ids[7]])
+	}
+}

@@ -170,7 +170,14 @@ func (ix *Index) Checkpoint(minInterval time.Duration) (int, error) {
 	if t, err := time.Parse(time.RFC3339Nano, last); err == nil && now.Sub(t) < minInterval {
 		return 0, nil
 	}
-	heat, uses, heatNewest, err := ix.heatSnapshot()
+	// Only what changed since the last checkpoint. Replay keeps the newest
+	// value per row and per machine and subject, so a run of these lines
+	// rebuilds exactly what full snapshots would, while each line stays the
+	// size of the activity since the last one rather than of every memory ever
+	// used: the log is never pruned. An index with no checkpoint yet (new, or
+	// rebuilt) writes everything once. A time imported from another machine's
+	// line can be sent on again; that echo scales with activity, not the store.
+	heat, uses, err := ix.heatSnapshot(last)
 	if err != nil {
 		return 0, err
 	}
@@ -179,23 +186,18 @@ func (ix *Index) Checkpoint(minInterval time.Duration) (int, error) {
 		return 0, err
 	}
 	var entries []wirelog.CheckpointRow
-	newest := ""
 	for rows.Next() {
 		var r wirelog.CheckpointRow
 		if err := rows.Scan(&r.ID, &r.LastRetrieved); err != nil {
 			rows.Close()
 			return 0, err
 		}
-		if newest == "" || newerTime(r.LastRetrieved, newest) {
-			newest = r.LastRetrieved
+		if last == "" || newerTime(r.LastRetrieved, last) {
+			entries = append(entries, r)
 		}
-		entries = append(entries, r)
 	}
 	rows.Close()
-	if heatNewest != "" && (newest == "" || newerTime(heatNewest, newest)) {
-		newest = heatNewest
-	}
-	if (len(entries) == 0 && len(heat) == 0) || (last != "" && !newerTime(newest, last)) {
+	if len(entries) == 0 && len(heat) == 0 {
 		return 0, nil
 	}
 	if entries == nil {

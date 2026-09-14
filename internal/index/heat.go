@@ -344,21 +344,25 @@ func (ix *Index) selfHost() string {
 	return ix.log.Host()
 }
 
-// heatSnapshot is this machine's heat and its last two weeks of use counts,
-// for a checkpoint line, and the newest use among them.
-func (ix *Index) heatSnapshot() ([]wirelog.CheckpointHeat, []wirelog.CheckpointUse, string, error) {
+// heatSnapshot is this machine's heat updated after since (all of it when since
+// is empty), and its last two weeks of use counts, for a checkpoint line. Use
+// counts are always sent whole: they are a few rows, and a reader replaces a
+// machine's counts with its newest line.
+func (ix *Index) heatSnapshot(since string) ([]wirelog.CheckpointHeat, []wirelog.CheckpointUse, error) {
 	rows, err := ix.db.Query(`SELECT subject, heat, at FROM heat_local ORDER BY subject`)
 	if err != nil {
-		return nil, nil, "", err
+		return nil, nil, err
 	}
 	var heat []wirelog.CheckpointHeat
-	newest := ""
 	for rows.Next() {
 		var s, at string
 		var h float64
 		if err := rows.Scan(&s, &h, &at); err != nil {
 			rows.Close()
-			return nil, nil, "", err
+			return nil, nil, err
+		}
+		if since != "" && !newerTime(at, since) {
+			continue
 		}
 		parts := strings.Split(s, subjectSep)
 		entry := wirelog.CheckpointHeat{Heat: h, At: at}
@@ -370,30 +374,27 @@ func (ix *Index) heatSnapshot() ([]wirelog.CheckpointHeat, []wirelog.CheckpointU
 		default:
 			continue
 		}
-		if newest == "" || newerTime(at, newest) {
-			newest = at
-		}
 		heat = append(heat, entry)
 	}
 	rows.Close()
 	if err := rows.Err(); err != nil {
-		return nil, nil, "", err
+		return nil, nil, err
 	}
-	since := ix.now().UTC().AddDate(0, 0, -14).Format("2006-01-02")
-	urows, err := ix.db.Query(`SELECT day, source, n FROM use_counts WHERE host=? AND day >= ? ORDER BY day, source`, ix.selfHost(), since)
+	fortnight := ix.now().UTC().AddDate(0, 0, -14).Format("2006-01-02")
+	urows, err := ix.db.Query(`SELECT day, source, n FROM use_counts WHERE host=? AND day >= ? ORDER BY day, source`, ix.selfHost(), fortnight)
 	if err != nil {
-		return nil, nil, "", err
+		return nil, nil, err
 	}
 	defer urows.Close()
 	var uses []wirelog.CheckpointUse
 	for urows.Next() {
 		var u wirelog.CheckpointUse
 		if err := urows.Scan(&u.Day, &u.Source, &u.N); err != nil {
-			return nil, nil, "", err
+			return nil, nil, err
 		}
 		uses = append(uses, u)
 	}
-	return heat, uses, newest, urows.Err()
+	return heat, uses, urows.Err()
 }
 
 // applyHeat restores heat and use counts from a checkpoint written by host.
