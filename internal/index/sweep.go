@@ -35,12 +35,15 @@ type SweepReport struct {
 	StaleTasks int `json:"stale_tasks"`
 	// Checkpointed is how many retrieval times were written to the wire log.
 	Checkpointed int `json:"checkpointed"`
+	// Unscoped is how many current memories are quarantined with no project:
+	// a growing number means an agent runs where no project resolves (SPEC 17).
+	Unscoped int `json:"unscoped"`
 }
 
 // Sweep runs one pass. Maintenance never counts as retrieval (SPEC 7.2).
 func (ix *Index) Sweep() (*SweepReport, error) {
 	now := ix.now()
-	r := &SweepReport{At: now.UTC().Format(time.RFC3339)}
+	r := &SweepReport{At: now.UTC().Format(time.RFC3339), Unscoped: ix.UnscopedCount()}
 	rows, err := ix.db.Query(`SELECT kind, valid_from, last_retrieved, source_concept IS NOT NULL
 	                            FROM memories WHERE valid_to IS NULL`)
 	if err != nil {

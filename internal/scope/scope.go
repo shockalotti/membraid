@@ -9,6 +9,7 @@ package scope
 import (
 	"crypto/sha256"
 	"encoding/hex"
+	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -19,6 +20,12 @@ import (
 // Shared surfaces in every project.
 const Shared = "shared"
 
+// Unscoped quarantines a write whose project could not be worked out. No
+// project reads it by default, so a misconfigured agent cannot pollute every
+// project through shared, and its size is the sign that something is wrong
+// (SPEC 17).
+const Unscoped = "unscoped"
+
 var nonSlug = regexp.MustCompile(`[^a-z0-9]+`)
 
 // Resolve picks the scope for a call, in priority order:
@@ -26,7 +33,9 @@ var nonSlug = regexp.MustCompile(`[^a-z0-9]+`)
 //  1. an explicit --scope
 //  2. MEMBRAID_SCOPE in the environment
 //  3. the current project, derived from the git root (or cwd)
-//  4. shared
+//  4. shared, for reading: with no project, you read the curated bucket
+//
+// Writes use ResolveWrite, which falls back to Unscoped instead.
 //
 // Deriving from the git root rather than the working directory matters: you
 // are in the same project whether you are at its root or three directories
@@ -42,6 +51,29 @@ func Resolve(explicit string) string {
 		return s
 	}
 	return Shared
+}
+
+// ResolveWrite picks the scope a write lands in: an explicit scope, then
+// MEMBRAID_SCOPE, then the current project, and otherwise Unscoped, never
+// Shared (SPEC 17). "*" means every project and is for searching, and unscoped
+// can be reached but never chosen, since a caller that could write there on
+// purpose would fake the one sign of misconfiguration; both are refused.
+func ResolveWrite(explicit string) (string, error) {
+	for _, s := range []string{strings.TrimSpace(explicit), strings.TrimSpace(os.Getenv("MEMBRAID_SCOPE"))} {
+		switch s {
+		case "":
+			continue
+		case "*":
+			return "", fmt.Errorf(`scope "*" means every project and is only for searching; write to a project or to "shared"`)
+		case Unscoped:
+			return "", fmt.Errorf(`scope "unscoped" is where writes with no project land and cannot be chosen; write to a project or to "shared"`)
+		}
+		return s, nil
+	}
+	if s := FromDir(""); s != "" {
+		return s, nil
+	}
+	return Unscoped, nil
 }
 
 // FromDir derives a project slug from dir, or the working directory if empty.

@@ -9,6 +9,7 @@ import (
 
 	"github.com/shockalotti/membraid/internal/index"
 	"github.com/shockalotti/membraid/internal/vault"
+	"github.com/shockalotti/membraid/internal/vaultsync"
 )
 
 func setup(t *testing.T) (*index.Index, *vault.Vault, func()) {
@@ -143,5 +144,19 @@ func TestDistillFindsAMovedConcept(t *testing.T) {
 	}
 	if _, err := os.Stat(from); err == nil {
 		t.Error("the old path must not be recreated")
+	}
+}
+
+// Sync settles conflicts on notes distillation wrote by recognising this
+// footer; the two must not drift apart.
+func TestNotesCarryTheFooterSyncRecognises(t *testing.T) {
+	ix, v, _ := setup(t)
+	ix.Write(index.Memory{Kind: index.KindPreference, Key: "pkg.manager", Content: "uses pnpm", Source: "x"})
+	ix.Write(index.Memory{Kind: index.KindPreference, Key: "pkg.manager", Content: "uses pnpm, never npm", Source: "x"})
+	if _, err := Run(ix, v, nil); err != nil {
+		t.Fatal(err)
+	}
+	if body := read(t, v, "preferences/pkg-manager.md"); !strings.Contains(body, vaultsync.DraftMarker) || !strings.Contains(body, "status: draft") {
+		t.Errorf("a distilled note must carry the footer and draft status sync looks for:\n%s", body)
 	}
 }

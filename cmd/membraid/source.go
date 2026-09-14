@@ -450,7 +450,10 @@ func runSource(v *vault.Vault, cfg config.Config, args []string, about, key, sco
 			if err != nil {
 				return err
 			}
-			sc := scope.Resolve(scopeFlag)
+			sc, err := scope.ResolveWrite(scopeFlag)
+			if err != nil {
+				return err
+			}
 			k := locationKey(key, loc)
 			res, err := ix.Write(index.Memory{
 				Kind: index.KindProjectParam, Key: k, Scope: sc, Source: source,

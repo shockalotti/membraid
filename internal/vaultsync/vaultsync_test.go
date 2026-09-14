@@ -158,3 +158,108 @@ func TestNoRemoteStillCommits(t *testing.T) {
 		t.Errorf("want a local commit only: %+v", r)
 	}
 }
+
+func draftNote(body string) string {
+	return "---\ntype: fact\ntitle: Deploy target\nstatus: draft\nkey: deploy.target\n---\n\n" + body +
+		"\n\n" + DraftMarker + " Edit it freely: once you change this file, membraid will not overwrite it._\n"
+}
+
+func writeAndSync(t *testing.T, dir, host, file, content string) {
+	t.Helper()
+	os.MkdirAll(filepath.Dir(filepath.Join(dir, file)), 0o755)
+	os.WriteFile(filepath.Join(dir, file), []byte(content), 0o600)
+	run(t, dir, host)
+}
+
+// Every machine adds log.md entries under the header, so two machines logging
+// between syncs always collide. Sync keeps both machines' entries instead of
+// stopping the second machine for good.
+func TestLogConflictKeepsBothMachinesEntries(t *testing.T) {
+	isolate(t)
+	a, b := twoMachines(t)
+	const header = "# Change log\n\nNewest first.\n"
+	writeAndSync(t, a, "a", "log.md", header+"- 2026-09-13 init\n")
+	run(t, b, "b")
+
+	writeAndSync(t, a, "a", "log.md", header+"- 2026-09-14 sweep on a\n- 2026-09-13 init\n")
+	os.WriteFile(filepath.Join(b, "log.md"), []byte(header+"- 2026-09-14 distill on b\n- 2026-09-13 init\n"), 0o600)
+	if r := run(t, b, "b"); !r.Pulled || !r.Pushed {
+		t.Fatalf("b must settle the log conflict and push: %+v", r)
+	}
+	run(t, a, "a")
+	want := header + "- 2026-09-14 distill on b\n- 2026-09-14 sweep on a\n- 2026-09-13 init\n"
+	for _, dir := range []string{a, b} {
+		if got, _ := os.ReadFile(filepath.Join(dir, "log.md")); string(got) != want {
+			t.Errorf("%s log.md:\n%s\nwant:\n%s", filepath.Base(dir), got, want)
+		}
+	}
+}
+
+// Two machines distilling the same subject before they have seen each other's
+// memories write the note differently. Neither is a person's edit, so sync
+// takes the version already pushed and lets the next distill pass rewrite it.
+func TestUntouchedDraftConflictTakesTheRemoteVersion(t *testing.T) {
+	isolate(t)
+	a, b := twoMachines(t)
+	const note = "facts/deploy-target.md"
+	writeAndSync(t, a, "a", note, draftNote("deploys to railway"))
+	run(t, b, "b")
+
+	writeAndSync(t, a, "a", note, draftNote("deploys to fly.io"))
+	os.WriteFile(filepath.Join(b, note), []byte(draftNote("deploys to render")), 0o600)
+	if r := run(t, b, "b"); !r.Pulled {
+		t.Fatalf("b must settle the draft conflict: %+v", r)
+	}
+	if got, _ := os.ReadFile(filepath.Join(b, note)); string(got) != draftNote("deploys to fly.io") {
+		t.Errorf("want the remote's draft, got:\n%s", got)
+	}
+}
+
+// A note a person changed is not membraid's to settle, and neither is a mix of
+// settleable and unsettleable files: sync stops, names them, and leaves the
+// repo clean with the local commit intact.
+func TestConflictsMembraidCannotSettleStillStop(t *testing.T) {
+	isolate(t)
+	for _, c := range []struct {
+		name  string
+		setup func(a, b string)
+		want  []string
+	}{
+		{"a person's edit", func(a, b string) {
+			const note = "facts/deploy-target.md"
+			writeAndSync(t, a, "a", note, draftNote("deploys to railway"))
+			run(t, b, "b")
+			writeAndSync(t, a, "a", note, draftNote("deploys to fly.io"))
+			os.WriteFile(filepath.Join(b, note), []byte("---\ntype: fact\nstatus: stable\n---\n\nWe deploy to render. My note.\n"), 0o600)
+		}, []string{"facts/deploy-target.md"}},
+		{"log.md with another file", func(a, b string) {
+			const header = "# Change log\n\nNewest first.\n"
+			writeAndSync(t, a, "a", "log.md", header)
+			run(t, b, "b")
+			os.WriteFile(filepath.Join(a, "log.md"), []byte(header+"- on a\n"), 0o600)
+			writeAndSync(t, a, "a", "index.md", "# edited on a\n")
+			os.WriteFile(filepath.Join(b, "log.md"), []byte(header+"- on b\n"), 0o600)
+			os.WriteFile(filepath.Join(b, "index.md"), []byte("# edited on b\n"), 0o600)
+		}, []string{"index.md"}},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			a, b := twoMachines(t)
+			c.setup(a, b)
+			_, err := Run(context.Background(), b, Options{Host: "b"})
+			var ce *ConflictError
+			if !errors.As(err, &ce) {
+				t.Fatalf("want a conflict, got %v", err)
+			}
+			for _, f := range c.want {
+				if !strings.Contains(strings.Join(ce.Files, " "), f) {
+					t.Errorf("conflict must name %s, got %v", f, ce.Files)
+				}
+			}
+			for _, d := range []string{"rebase-merge", "rebase-apply"} {
+				if _, serr := os.Stat(filepath.Join(b, ".git", d)); serr == nil {
+					t.Error("the repo must not be left mid-rebase")
+				}
+			}
+		})
+	}
+}

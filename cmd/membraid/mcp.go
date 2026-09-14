@@ -50,7 +50,9 @@ type mcpServer struct {
 	source string
 	// digest adds the session digest to the server instructions (--digest).
 	digest bool
-	out    *json.Encoder
+	// warnedUnscoped is set once this server has said a write had no project.
+	warnedUnscoped bool
+	out            *json.Encoder
 	// session identifies this server process in every write, so distillation
 	// can tell a subject restated across sessions from one written twice in one.
 	session string
@@ -469,12 +471,24 @@ func (s *mcpServer) callTool(req rpcRequest) {
 
 	switch p.Name {
 	case "memory_write":
-		res, err := s.ix.Write(index.Memory{Kind: a.Kind, Key: a.Key, Content: a.Content, Scope: sc, Source: s.source, SessionRef: s.session})
+		writeScope, err := scope.ResolveWrite(a.Scope)
+		if err != nil {
+			s.text(req.ID, err.Error(), true)
+			return
+		}
+		res, err := s.ix.Write(index.Memory{Kind: a.Kind, Key: a.Key, Content: a.Content, Scope: writeScope, Source: s.source, SessionRef: s.session})
 		if err != nil {
 			s.text(req.ID, err.Error(), true)
 			return
 		}
 		msg := fmt.Sprintf("Remembered in %s.", res.Scope)
+		if res.Scope == scope.Unscoped {
+			msg += ` No project could be worked out for this session, so it is quarantined in "unscoped", which no project reads. If it is true everywhere, write it again with scope "shared"; if it belongs to a project, pass that project's scope.`
+			if !s.warnedUnscoped {
+				s.warnedUnscoped = true
+				fmt.Fprintln(os.Stderr, "membraid: a write had no project and went to unscoped; start this harness in a project or set MEMBRAID_SCOPE")
+			}
+		}
 		if n := len(res.Superseded); n > 0 {
 			msg += fmt.Sprintf(" This replaced %d earlier answer on the same subject.", n)
 		}
@@ -583,23 +597,22 @@ func (s *mcpServer) callTool(req rpcRequest) {
 		var b strings.Builder
 		var touched []string
 		for _, k := range []string{index.KindPreference, index.KindProjectParam, index.KindInsight, index.KindTaskState} {
-			m, err := s.ix.Current(sc, k, a.Key)
+			// This project and shared: a standing preference lives in shared.
+			ms, err := s.ix.CurrentInScopes(sc, k, a.Key)
 			if err != nil {
 				s.text(req.ID, err.Error(), true)
 				return
 			}
-			if m != nil {
-				b.WriteString("- [" + m.Kind + "] " + m.Content + " (via " + m.Source + ", id " + m.ID)
+			for _, m := range ms {
+				b.WriteString("- [" + m.Kind + "] " + m.Content + " (" + m.Scope + ", via " + m.Source + ", id " + m.ID)
 				b.WriteString(")\n")
 				touched = append(touched, m.ID)
 			}
 		}
+		// A lookup is a retrieval, not a use: checking a fact is not relying on
+		// it. memory_used says when one changed what the agent did.
 		if err := s.ix.Touch(touched); err != nil {
 			fmt.Fprintf(os.Stderr, "membraid: could not record retrieval: %v\n", err)
-		}
-		// Asking for exactly this subject is using it.
-		if _, err := s.ix.MarkUsed(touched, s.source, 1); err != nil {
-			fmt.Fprintf(os.Stderr, "membraid: could not record use: %v\n", err)
 		}
 		if b.Len() == 0 {
 			s.text(req.ID, "No current answer for "+a.Key+".", false)

@@ -203,3 +203,10 @@ func (ix *Index) Browse(scope, kind, source string, limit int) ([]Hit, error) {
 	}
 	return hits, rows.Err()
 }
+
+// UnscopedCount is how many current memories are quarantined with no project.
+func (ix *Index) UnscopedCount() int {
+	var n int
+	_ = ix.db.QueryRow(`SELECT COUNT(*) FROM memories WHERE valid_to IS NULL AND scope = ?`, ScopeUnscoped).Scan(&n)
+	return n
+}

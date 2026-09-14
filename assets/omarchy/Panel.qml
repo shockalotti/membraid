@@ -125,6 +125,7 @@ Panel {
     if (search.mode === "vector" && search.embedded < search.current)
       out.push({ text: (search.current - search.embedded) + " memories are not searchable by meaning yet", urgent: false, action: ["embed", "--quiet"], actionLabel: "Embed now" })
     if (root.staleCount > 0) out.push({ text: root.staleCount + " open task" + (root.staleCount === 1 ? " has" : "s have") + " not been touched in 14+ days", urgent: false })
+    if (status.unscoped > 0) out.push({ text: status.unscoped + (status.unscoped === 1 ? " memory has" : " memories have") + " no project, so no project reads " + (status.unscoped === 1 ? "it" : "them") + ": an agent is running where no project can be worked out. See Projects, unscoped.", urgent: true })
     for (var i = 0; i < root.projects.length; i++) {
       var p = root.projects[i]
       if (p.missing && p.memories > 0)

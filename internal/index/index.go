@@ -34,6 +34,10 @@ var validKinds = map[string]bool{
 
 const ScopeShared = "shared"
 
+// ScopeUnscoped quarantines writes whose project could not be worked out, so a
+// misconfigured agent cannot pollute every project through shared (SPEC 17).
+const ScopeUnscoped = "unscoped"
+
 type Index struct {
 	db   *sql.DB
 	log  *wirelog.Log
@@ -71,6 +75,19 @@ func Open(path string, log *wirelog.Log) (*Index, error) {
 		db.Close()
 		return nil, fmt.Errorf("index: open: %w", err)
 	}
+	switch {
+	case version > schemaVersion:
+		db.Close()
+		return nil, fmt.Errorf("%w: it is at schema %d, this membraid knows %d; update membraid (membraid update), or rebuild it with membraid reindex", ErrNewerIndex, version, schemaVersion)
+	case version > 0 && version < minUpgradeVersion:
+		// Too old to upgrade in place: the index is derived, so it is set aside
+		// and rebuilt from the wire log on this open.
+		db.Close()
+		if err := setAside(path, fmt.Sprintf("schema%d", version)); err != nil {
+			return nil, fmt.Errorf("index: set aside an old index: %w", err)
+		}
+		return Open(path, log)
+	}
 	if version != schemaVersion {
 		if err := enableWAL(db); err != nil {
 			db.Close()
@@ -83,6 +100,36 @@ func Open(path string, log *wirelog.Log) (*Index, error) {
 	}
 	return &Index{db: db, log: log, now: func() time.Time { return time.Now().UTC() }}, nil
 }
+
+// minUpgradeVersion is the oldest schema that upgrades in place. Every change
+// from it to schemaVersion only adds tables or indexes, which schemaSQL creates
+// with IF NOT EXISTS. A change that alters an existing table must raise this to
+// the new version, so older indexes are rebuilt from the log instead.
+const minUpgradeVersion = 3
+
+// ErrNewerIndex is returned for an index written by a newer membraid. Opening
+// it would stamp it back to this binary's version and silently lose what the
+// newer schema added (SPEC 5.3).
+var ErrNewerIndex = errors.New("index: this index was built by a newer membraid")
+
+// setAside moves an index and its WAL files out of the way, keeping them as
+// <index>.<label>.<time>.bak so nothing is destroyed.
+func setAside(path, label string) error {
+	stamp := time.Now().UTC().Format("20060102T150405")
+	for _, suffix := range []string{"", "-wal", "-shm"} {
+		from := path + suffix
+		if _, err := os.Stat(from); err != nil {
+			continue
+		}
+		if err := os.Rename(from, fmt.Sprintf("%s.%s.%s.bak%s", path, label, stamp, suffix)); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// SetAside moves the index at path aside for a rebuild (membraid reindex).
+func SetAside(path string) error { return setAside(path, "reindex") }
 
 // createSchema creates or upgrades the schema in one write transaction. Every
 // harness can start at once on a new or just-upgraded index, and outside a
@@ -101,6 +148,9 @@ func createSchema(db *sql.DB) error {
 	}
 	if version == schemaVersion {
 		return nil
+	}
+	if version > schemaVersion {
+		return fmt.Errorf("%w: schema %d", ErrNewerIndex, version)
 	}
 	if _, err := tx.Exec(schemaSQL); err != nil {
 		return err
@@ -683,6 +733,40 @@ func (ix *Index) Current(scope, kind, key string) (*Memory, error) {
 	return &m, nil
 }
 
+// CurrentInScopes is the current answer for a key in every effective scope of
+// a lookup: the scope and shared, shared alone, or every scope for "*".
+// memory_get means this: a standing preference lives in shared and must be
+// found from inside any project (SPEC 7.2, 17).
+func (ix *Index) CurrentInScopes(scope, kind, key string) ([]Memory, error) {
+	scopes := effectiveScopes(scope)
+	if scopes == nil {
+		rows, err := ix.db.Query(`SELECT DISTINCT scope FROM memories WHERE kind=? AND key=? AND valid_to IS NULL`, kind, NormalizeKey(key))
+		if err != nil {
+			return nil, err
+		}
+		for rows.Next() {
+			var s string
+			if err := rows.Scan(&s); err != nil {
+				rows.Close()
+				return nil, err
+			}
+			scopes = append(scopes, s)
+		}
+		rows.Close()
+	}
+	var out []Memory
+	for _, s := range scopes {
+		m, err := ix.Current(s, kind, key)
+		if err != nil {
+			return nil, err
+		}
+		if m != nil {
+			out = append(out, *m)
+		}
+	}
+	return out, nil
+}
+
 func (ix *Index) History(scope, kind, key string) ([]Memory, error) {
 	key = NormalizeKey(key)
 	rows, err := ix.db.Query(
@@ -774,6 +858,9 @@ func effectiveScopes(scope string) []string {
 		return nil
 	case "", ScopeShared:
 		return []string{ScopeShared}
+	case ScopeUnscoped:
+		// Asked for by name, for triage only. Never auto-included (SPEC 17).
+		return []string{ScopeUnscoped}
 	default:
 		return []string{scope, ScopeShared}
 	}

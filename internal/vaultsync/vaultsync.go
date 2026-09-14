@@ -15,6 +15,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"regexp"
 	"strconv"
 	"strings"
 	"time"
@@ -124,14 +125,8 @@ func Run(ctx context.Context, vault string, opt Options) (*Result, error) {
 			return res, err
 		}
 		if behind > 0 {
-			if _, err := g.run("rebase", "-q", remoteRef); err != nil {
-				conflicted, _ := g.run("diff", "--name-only", "--diff-filter=U")
-				_, _ = g.run("rebase", "--abort")
-				files := strings.Fields(conflicted)
-				if len(files) == 0 {
-					return res, fmt.Errorf("rebase failed and was aborted: %w", err)
-				}
-				return res, &ConflictError{Files: files}
+			if err := g.rebase(remoteRef); err != nil {
+				return res, err
 			}
 			res.Pulled = true
 		}
@@ -181,6 +176,152 @@ func (g *git) count(rangeSpec string) (int, error) {
 		return 0, err
 	}
 	return strconv.Atoi(strings.TrimSpace(out))
+}
+
+// DraftMarker is the footer distillation puts on the notes it writes. A
+// conflicted note that still carries it, and is still a draft, on both sides is
+// membraid's to settle. It must match internal/distill's footer; a test there
+// checks.
+const DraftMarker = "_Written by membraid from what your agents recorded."
+
+var draftStatus = regexp.MustCompile(`(?m)^status:[ \t]*draft[ \t]*$`)
+
+// rebase replays this machine's commits onto the remote. Conflicts on the
+// files membraid itself maintains on every machine are settled, because two
+// machines must never block each other's sync over log.md or a distilled note.
+// Any other conflict aborts the rebase and is reported; the local commit is
+// intact and the repo is never left mid-rebase.
+func (g *git) rebase(ref string) error {
+	_, err := g.run("rebase", "-q", ref)
+	for attempt := 0; err != nil && attempt < 500; attempt++ {
+		out, _ := g.run("diff", "--name-only", "--diff-filter=U")
+		files := nonEmptyLines(out)
+		if len(files) == 0 {
+			if !g.rebasing() {
+				break
+			}
+			// Settling left this commit with nothing to add: its change was
+			// already upstream.
+			_, err = g.run("rebase", "--skip")
+			continue
+		}
+		settled, serr := g.settle(files)
+		if serr != nil || !settled {
+			_, _ = g.run("rebase", "--abort")
+			if serr != nil {
+				return fmt.Errorf("settling a sync conflict: %w", serr)
+			}
+			return &ConflictError{Files: files}
+		}
+		_, err = g.run("rebase", "--continue")
+	}
+	if err != nil {
+		_, _ = g.run("rebase", "--abort")
+		return fmt.Errorf("rebase failed and was aborted: %w", err)
+	}
+	return nil
+}
+
+func (g *git) rebasing() bool {
+	for _, d := range []string{"rebase-merge", "rebase-apply"} {
+		if _, err := os.Stat(filepath.Join(g.dir, ".git", d)); err == nil {
+			return true
+		}
+	}
+	return false
+}
+
+// settle resolves the conflicted files it recognises. During a rebase stage 2
+// is the remote's version and stage 3 this machine's.
+//
+//   - log.md keeps both machines' entries: every machine inserts new lines under
+//     the header, so any two appends between syncs collide.
+//   - A note that both sides still show as an untouched distilled draft takes
+//     the remote's version; the next distill pass rewrites it from both
+//     machines' memories, which sync has just brought together.
+//
+// Anything else - a note a person changed, a file deleted on one side, any
+// other file - is not membraid's to decide, and settle reports false.
+func (g *git) settle(files []string) (bool, error) {
+	for _, f := range files {
+		remote, rerr := g.run("show", ":2:"+f)
+		local, lerr := g.run("show", ":3:"+f)
+		if rerr != nil || lerr != nil {
+			return false, nil
+		}
+		var merged string
+		switch {
+		case f == "log.md":
+			merged = unionLog(remote, local)
+		case strings.HasSuffix(f, ".md") && untouchedDraft(remote) && untouchedDraft(local):
+			merged = remote
+		default:
+			return false, nil
+		}
+		if err := os.WriteFile(filepath.Join(g.dir, filepath.FromSlash(f)), []byte(merged), 0o600); err != nil {
+			return false, err
+		}
+		if _, err := g.run("add", "--", f); err != nil {
+			return false, err
+		}
+	}
+	return true, nil
+}
+
+func untouchedDraft(note string) bool {
+	if !strings.Contains(note, DraftMarker) || !strings.HasPrefix(note, "---\n") {
+		return false
+	}
+	end := strings.Index(note[4:], "\n---")
+	return end >= 0 && draftStatus.MatchString(note[4:4+end])
+}
+
+// unionLog keeps every entry from both sides of a log.md conflict. Entries are
+// "- " lines under the header, newest first; this machine's entries that the
+// remote lacks go on top.
+func unionLog(remote, local string) string {
+	header, remoteEntries := splitLog(remote)
+	_, localEntries := splitLog(local)
+	seen := map[string]bool{}
+	for _, l := range remoteEntries {
+		seen[l] = true
+	}
+	var b strings.Builder
+	b.WriteString(header)
+	for _, l := range localEntries {
+		if !seen[l] {
+			b.WriteString(l + "\n")
+			seen[l] = true
+		}
+	}
+	for _, l := range remoteEntries {
+		b.WriteString(l + "\n")
+	}
+	return b.String()
+}
+
+func splitLog(s string) (header string, entries []string) {
+	lines := strings.SplitAfter(s, "\n")
+	i := 0
+	for ; i < len(lines) && !strings.HasPrefix(lines[i], "- "); i++ {
+		header += lines[i]
+	}
+	for _, l := range lines[i:] {
+		if l = strings.TrimRight(l, "\n"); strings.TrimSpace(l) != "" {
+			entries = append(entries, l)
+		}
+	}
+	return header, entries
+}
+
+func nonEmptyLines(s string) []string {
+	var out []string
+	for _, l := range strings.Split(s, "\n") {
+		if l = strings.TrimSpace(l); l != "" {
+			out = append(out, l)
+		}
+	}
+	return out
 }
 
 type gitError struct {

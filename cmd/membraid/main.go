@@ -53,6 +53,7 @@ Usage:
   membraid mcp --source NAME             run as an MCP server (stdio)
   membraid install [--dry-run]           set membraid up in your agent harnesses
   membraid version [--json]              which release this is
+  membraid reindex                       rebuild the index from the wire log (the old one is kept)
   membraid projects [--json] | prune     every project, and forgetting empty ones
   membraid source add FOLDER|REPO|URL --about T [--login]   point agents at knowledge: a folder, git repo or web page
   membraid source list [--json] | remove KEY   knowledge locations, and removing one
@@ -184,12 +185,19 @@ func run(args []string) error {
 			return fmt.Errorf(`write needs content, e.g. membraid write "deploy target is railway" --key deploy.target --kind project_param`)
 		}
 		return withIndex(v, cfg, func(ix *index.Index) error {
+			writeScope, err := scope.ResolveWrite(*scopeFlag)
+			if err != nil {
+				return err
+			}
 			res, err := ix.Write(index.Memory{
 				Kind: *kind, Key: *key, Content: strings.Join(fs.Args(), " "),
-				Scope: scope.Resolve(*scopeFlag), Source: *source,
+				Scope: writeScope, Source: *source,
 			})
 			if err != nil {
 				return err
+			}
+			if res.Scope == scope.Unscoped {
+				fmt.Fprintln(os.Stderr, "membraid: no project could be worked out here, so this went to unscoped, which no project reads; pass --scope shared, or run it from the project")
 			}
 			fmt.Printf("wrote %s", res.ID)
 			if n := len(res.Superseded); n > 0 {
@@ -305,12 +313,12 @@ func run(args []string) error {
 			var touched []string
 			for _, k := range []string{index.KindPreference, index.KindProjectParam, index.KindInsight, index.KindTaskState} {
 				if cmd == "get" {
-					m, err := ix.Current(sc, k, fs.Arg(0))
+					ms, err := ix.CurrentInScopes(sc, k, fs.Arg(0))
 					if err != nil {
 						return err
 					}
-					if m != nil {
-						fmt.Printf("%-14s %s  [id %s]\n", m.Kind, m.Content, m.ID)
+					for _, m := range ms {
+						fmt.Printf("%-14s %-12s %s  [id %s]\n", m.Kind, m.Scope, m.Content, m.ID)
 						found = true
 						touched = append(touched, m.ID)
 					}
@@ -329,9 +337,9 @@ func run(args []string) error {
 					found = true
 				}
 			}
+			// A lookup is a retrieval, not a use: checking a fact is not relying on
+			// it. membraid used says when one changed what you did.
 			_ = ix.Touch(touched)
-			// Asking for a subject by key is using it.
-			_, _ = ix.MarkUsed(touched, *source, 1)
 			if !found {
 				fmt.Println("no answer for that subject")
 			}
@@ -356,6 +364,22 @@ func run(args []string) error {
 			if len(missing) > 0 || len(used) < len(refs) {
 				fmt.Fprintf(os.Stderr, "membraid: some did not match a current memory: %s\n", strings.Join(append(missing, *id), " "))
 			}
+			return nil
+		})
+
+	case "reindex":
+		// The index is derived: set it aside and rebuild it from the wire log.
+		if err := index.SetAside(v.IndexPath()); err != nil {
+			return err
+		}
+		return withIndex(v, cfg, func(ix *index.Index) error {
+			st, err := ix.Stats()
+			if err != nil {
+				return err
+			}
+			fmt.Printf("rebuilt the index from the wire log: %d current memories, %d in history\n", st.Current, st.Total)
+			fmt.Println("The old index is kept beside it as index.db.reindex.<time>.bak. Search by meaning re-embeds in the background (or run membraid embed).")
+			fmt.Println("Stop running agents first if they were writing: a server that had the old index open keeps writing to the set-aside copy until it restarts.")
 			return nil
 		})
 
@@ -540,10 +564,14 @@ func run(args []string) error {
 					"stats": st, "doing": doing, "learned": learned, "sync": syncInfo,
 					"search":      searchStatus(cfg, ix),
 					"stale_tasks": stale, "sweep": ix.LastSweep(), "version": currentVersion(),
+					"unscoped": ix.UnscopedCount(),
 				})
 			}
 			fmt.Printf("scope %s  -  %d current, %d total, %d projects\n", sc, st.Current, st.Total, st.Scopes)
 			fmt.Println("sync  " + describeSync(cfg, ss))
+			if n := ix.UnscopedCount(); n > 0 {
+				fmt.Printf("unscoped  %d memor%s with no project, which no project reads: an agent is running where no project can be worked out (membraid memories --scope unscoped)\n", n, map[bool]string{true: "y", false: "ies"}[n == 1])
+			}
 			if r := ix.LastSweep(); r != nil {
 				fmt.Printf("sweep  %s: %d unused for %d+ days, %d open tasks untouched for %d+ days\n",
 					r.At[:10], r.StaleRows, index.SweepUnusedDays, r.StaleTasks, index.StaleTaskDays)

@@ -104,3 +104,33 @@ func TestHomeIsNotAProject(t *testing.T) {
 		t.Errorf("home must not be a project scope, got %q", got)
 	}
 }
+
+// A write with no project is quarantined, never filed under shared, while a
+// read with no project still reads shared; "*" and "unscoped" cannot be chosen
+// for a write, whether passed or set in the environment.
+func TestResolveWriteQuarantinesInsteadOfShared(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	t.Setenv("MEMBRAID_SCOPE", "")
+	t.Chdir(home)
+
+	if got, err := ResolveWrite(""); err != nil || got != Unscoped {
+		t.Errorf("a write from home must land in unscoped, got %q %v", got, err)
+	}
+	if got := Resolve(""); got != Shared {
+		t.Errorf("a read from home still reads shared, got %q", got)
+	}
+	if got, err := ResolveWrite("shared"); err != nil || got != Shared {
+		t.Errorf("an explicit shared write is allowed, got %q %v", got, err)
+	}
+	for _, bad := range []string{"*", Unscoped} {
+		if _, err := ResolveWrite(bad); err == nil {
+			t.Errorf("writing to %q must be refused", bad)
+		}
+		t.Setenv("MEMBRAID_SCOPE", bad)
+		if _, err := ResolveWrite(""); err == nil {
+			t.Errorf("MEMBRAID_SCOPE=%q must be refused for writes", bad)
+		}
+		t.Setenv("MEMBRAID_SCOPE", "")
+	}
+}
