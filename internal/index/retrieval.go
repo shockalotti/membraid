@@ -152,6 +152,9 @@ func applyCheckpoint(tx *sql.Tx, c wirelog.CheckpointLine) error {
 		var cur sql.NullString
 		err := tx.QueryRow(`SELECT last_retrieved FROM memories WHERE id=?`, r.ID).Scan(&cur)
 		if errors.Is(err, sql.ErrNoRows) {
+			if err := notePending(tx, r.ID, pendingRetrieved, r.LastRetrieved, ""); err != nil {
+				return err
+			}
 			continue
 		}
 		if err != nil {
@@ -207,7 +210,11 @@ func (ix *Index) Checkpoint(minInterval time.Duration) (int, error) {
 		}
 	}
 	rows.Close()
-	if len(entries) == 0 && len(heat) == 0 {
+	scopes, scopeSigs, err := ix.scopeSnapshot()
+	if err != nil {
+		return 0, err
+	}
+	if len(entries) == 0 && len(heat) == 0 && len(scopes) == 0 {
 		return 0, nil
 	}
 	if entries == nil {
@@ -219,9 +226,15 @@ func (ix *Index) Checkpoint(minInterval time.Duration) (int, error) {
 		Concepts: []wirelog.CheckpointConcept{},
 		Heat:     heat,
 		Uses:     uses,
+		Scopes:   scopes,
 	}
 	if err := ix.log.Append(line); err != nil {
 		return 0, fmt.Errorf("index: wire log: %w", err)
+	}
+	for sc, sig := range scopeSigs {
+		if err := ix.metaSet("scope_logged:"+sc, sig); err != nil {
+			return 0, err
+		}
 	}
 	return len(entries) + len(heat), ix.metaSet("last_checkpoint", now.UTC().Format(retrievedFormat))
 }

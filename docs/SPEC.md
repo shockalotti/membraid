@@ -462,6 +462,32 @@ So each line records the derived outcome, not just the input. Three line types:
 > ties by id) is live and every older one is closed, whichever order the lines
 > arrive in - so machines converge instead of diverging.
 >
+> **Implementation note (v1.18, import order).** Every index must equal a
+> rebuild from the whole log, whatever order lines arrived in. Three changes make
+> that hold:
+>
+> - **A rescope leaves an alias.** The old scope id resolves to the new one, so a
+>   write that still names it (a checkout that has not noticed the move) lands
+>   with the project, and reads from the old id find it. A later rescope into the
+>   old id brings it back into use.
+> - **Out-of-order rescopes replay the log.** A rescope older than changes
+>   already applied to either scope, or a write or close older than a rescope
+>   already applied to its scope, would give a different result applied late.
+>   Import detects both and replays the whole log in order, keeping what the log
+>   does not hold (embeddings, heat, uncheckpointed retrievals). An index from
+>   before schema 5 replays once on upgrade.
+> - **Lines naming a memory not here yet are kept.** A close, note link or
+>   checkpoint row for an id the index lacks is applied when the write arrives,
+>   including in a rebuild, where a machine with a slow clock can stamp a close
+>   before the write it closes.
+>
+> Import also fingerprints the bytes before each saved position, so a hand edit
+> that shortens an earlier line makes it reread the file instead of resuming
+> mid-line. Checkpoint lines gain an optional `scopes` array (project id, name,
+> first and last seen, and the writing machine's own path), so a rebuilt index
+> keeps the project registry; a machine's per-day use counts replay as the
+> largest seen rather than the first.
+>
 > **Implementation note (v1.15.1, retrieval state).** Checkpoint lines are
 > written by sync as well as sweep: at most once an hour, only when something
 > was retrieved since the last one, and carrying only rows that have a

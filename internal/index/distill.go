@@ -138,8 +138,14 @@ func (ix *Index) LinkConcept(rowIDs []string, path string) (int, error) {
 
 func applyDistill(tx *sql.Tx, d wirelog.DistillLine) error {
 	for _, id := range d.Rows {
-		if _, err := tx.Exec(`UPDATE memories SET source_concept=? WHERE id=?`, d.Concept, id); err != nil {
+		res, err := tx.Exec(`UPDATE memories SET source_concept=? WHERE id=?`, d.Concept, id)
+		if err != nil {
 			return err
+		}
+		if n, _ := res.RowsAffected(); n == 0 {
+			if err := notePending(tx, id, pendingDistill, d.TS, d.Concept); err != nil {
+				return err
+			}
 		}
 	}
 	return nil

@@ -9,7 +9,6 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
-	"sort"
 	"strings"
 	"sync"
 	"time"
@@ -96,6 +95,15 @@ func Open(path string, log *wirelog.Log) (*Index, error) {
 		if err := createSchema(db); err != nil {
 			db.Close()
 			return nil, fmt.Errorf("index: schema: %w", err)
+		}
+		// An index from before schema 5 applied rescopes without recording them,
+		// so it has no aliases and cannot tell a rescope out of order. One replay
+		// of the log fills both in.
+		if version > 0 && version < 5 {
+			if _, err := db.Exec(`INSERT INTO meta (key, value) VALUES (?, '1') ON CONFLICT(key) DO NOTHING`, metaReplay); err != nil {
+				db.Close()
+				return nil, fmt.Errorf("index: schema: %w", err)
+			}
 		}
 	}
 	return &Index{db: db, log: log, now: func() time.Time { return time.Now().UTC() }}, nil
@@ -234,6 +242,7 @@ func (ix *Index) Write(m Memory) (*WriteResult, error) {
 		m.ID = NewID()
 	}
 	m.Key = NormalizeKey(m.Key)
+	m.Scope = ix.CanonicalScope(m.Scope)
 	at := ix.now()
 
 	line := wirelog.WriteLine{
@@ -333,6 +342,7 @@ func applyWrite(tx *sql.Tx, w wirelog.WriteLine) ([]string, bool, error) {
 	if n > 0 {
 		return nil, false, nil
 	}
+	w.Scope = resolveScope(tx, w.Scope)
 	at, err := time.Parse(time.RFC3339Nano, w.TS)
 	if err != nil {
 		return nil, false, fmt.Errorf("index: bad timestamp on %s: %w", w.ID, err)
@@ -410,18 +420,53 @@ func applyWrite(tx *sql.Tx, w wirelog.WriteLine) ([]string, bool, error) {
 	if _, err := tx.Exec(`INSERT INTO memories_fts (content, id) VALUES (?,?)`, w.Content, w.ID); err != nil {
 		return nil, false, err
 	}
+	if err := applyPending(tx, w.ID); err != nil {
+		return nil, false, err
+	}
 	return closed, true, nil
 }
 
 func applyClose(tx *sql.Tx, c wirelog.CloseLine) error {
-	_, err := tx.Exec(`UPDATE memories SET valid_to=? WHERE id=? AND valid_to IS NULL`, c.TS, c.ID)
-	return err
+	if _, err := tx.Exec(`UPDATE memories SET valid_to=? WHERE id=? AND valid_to IS NULL`, c.TS, c.ID); err != nil {
+		return err
+	}
+	var n int
+	if err := tx.QueryRow(`SELECT COUNT(*) FROM memories WHERE id=?`, c.ID).Scan(&n); err != nil {
+		return err
+	}
+	if n == 0 {
+		return notePending(tx, c.ID, pendingClose, c.TS, "")
+	}
+	return nil
 }
 
 // applyRescope moves a scope's memories to another scope. Where both scopes
 // hold a live answer on the same subject, the older is closed first: moving it
 // across unchanged would put two live answers on one subject.
-func applyRescope(tx *sql.Tx, from, to string) (int, error) {
+//
+// The old scope id becomes an alias of the new one, so a write that still
+// names it, from a machine that has not noticed the move, follows the project.
+// A later rescope into the old id brings it back into use. Each rescope is
+// recorded, so rereading its line does nothing and import can tell when one
+// arrives out of order.
+func applyRescope(tx *sql.Tx, ts, from, to string) (int, error) {
+	if from == to {
+		return 0, nil
+	}
+	res, err := tx.Exec(`INSERT OR IGNORE INTO rescopes (ts, src, dst) VALUES (?,?,?)`, ts, from, to)
+	if err != nil {
+		return 0, err
+	}
+	if n, _ := res.RowsAffected(); n == 0 {
+		return 0, nil
+	}
+	if _, err := tx.Exec(`DELETE FROM scope_aliases WHERE src=?`, to); err != nil {
+		return 0, err
+	}
+	if _, err := tx.Exec(`INSERT INTO scope_aliases (src, dst) VALUES (?,?)
+	                      ON CONFLICT(src) DO UPDATE SET dst=excluded.dst`, from, to); err != nil {
+		return 0, err
+	}
 	if err := rescopeHeat(tx, from, to); err != nil {
 		return 0, err
 	}
@@ -455,7 +500,7 @@ func applyRescope(tx *sql.Tx, from, to string) (int, error) {
 			return 0, err
 		}
 	}
-	res, err := tx.Exec(`UPDATE memories SET scope=? WHERE scope=?`, to, from)
+	res, err = tx.Exec(`UPDATE memories SET scope=? WHERE scope=?`, to, from)
 	if err != nil {
 		return 0, err
 	}
@@ -488,7 +533,8 @@ func (ix *Index) ImportAll() (int, error) {
 // rolls the whole import back, so no position ever moves past a line that was
 // not applied.
 func (ix *Index) ImportLog(files []string) (int, error) {
-	if !ix.logGrew(files) {
+	replay := ix.metaGet(metaReplay) != ""
+	if !replay && !ix.logGrew(files) {
 		return 0, nil
 	}
 	tx, err := ix.db.Begin()
@@ -497,35 +543,37 @@ func (ix *Index) ImportLog(files []string) (int, error) {
 	}
 	defer tx.Rollback()
 
-	type fromHost struct {
-		wirelog.Entry
-		host string
-	}
-	var entries []fromHost
-	positions := map[string]int64{}
-	for _, f := range files {
-		base := filepath.Base(f)
-		var pos int64
-		if err := tx.QueryRow(`SELECT pos FROM log_offsets WHERE file=?`, base).Scan(&pos); err != nil && !errors.Is(err, sql.ErrNoRows) {
+	if replay {
+		if files, err = everyLogFile(files); err != nil {
 			return 0, err
 		}
-		// A file shorter than the saved position was replaced - restored from a
-		// backup, re-cloned. Reread it; ids make that safe.
-		if fi, err := os.Stat(f); err == nil && fi.Size() < pos {
-			pos = 0
-		}
-		es, next, err := wirelog.ReadFrom(f, pos)
-		if err != nil {
-			return 0, fmt.Errorf("index: import %s: %w", base, err)
-		}
-		host := wirelog.HostOfFile(f)
-		for _, e := range es {
-			entries = append(entries, fromHost{e, host})
-		}
-		positions[base] = next
 	}
-
-	sort.SliceStable(entries, func(i, j int) bool { return entries[i].Time().Before(entries[j].Time()) })
+	entries, positions, err := readLog(tx, files, replay)
+	if err != nil {
+		return 0, err
+	}
+	if !replay {
+		if replay, err = needsReplay(tx, entries); err != nil {
+			return 0, err
+		}
+		if replay {
+			// A replay rebuilds from the whole log, not only the files that
+			// brought the trigger.
+			if files, err = everyLogFile(files); err != nil {
+				return 0, err
+			}
+			if entries, positions, err = readLog(tx, files, true); err != nil {
+				return 0, err
+			}
+		}
+	}
+	var before int
+	var retrieved map[string]string
+	if replay {
+		if before, retrieved, err = resetForReplay(tx); err != nil {
+			return 0, err
+		}
+	}
 
 	imported := 0
 	for _, e := range entries {
@@ -543,7 +591,7 @@ func (ix *Index) ImportLog(files []string) (int, error) {
 				return 0, err
 			}
 		case e.Rescope != nil:
-			if _, err := applyRescope(tx, e.Rescope.From, e.Rescope.To); err != nil {
+			if _, err := applyRescope(tx, e.Rescope.TS, e.Rescope.From, e.Rescope.To); err != nil {
 				return 0, err
 			}
 		case e.Checkpoint != nil:
@@ -553,15 +601,37 @@ func (ix *Index) ImportLog(files []string) (int, error) {
 			if err := applyHeat(tx, *e.Checkpoint, e.host, ix.selfHost()); err != nil {
 				return 0, err
 			}
+			if err := applyScopes(tx, e.Checkpoint.Scopes, e.host, ix.selfHost()); err != nil {
+				return 0, err
+			}
 		case e.Distill != nil:
 			if err := applyDistill(tx, *e.Distill); err != nil {
 				return 0, err
 			}
 		}
 	}
-	for base, pos := range positions {
+	for base, p := range positions {
 		if _, err := tx.Exec(`INSERT INTO log_offsets (file, pos) VALUES (?,?)
-		                      ON CONFLICT(file) DO UPDATE SET pos=excluded.pos`, base, pos); err != nil {
+		                      ON CONFLICT(file) DO UPDATE SET pos=excluded.pos`, base, p.pos); err != nil {
+			return 0, err
+		}
+		if _, err := tx.Exec(`INSERT INTO meta (key, value) VALUES (?,?)
+		                      ON CONFLICT(key) DO UPDATE SET value=excluded.value`, "log_tail:"+base, p.tail); err != nil {
+			return 0, err
+		}
+	}
+	if replay {
+		if err := restoreRetrieved(tx, retrieved); err != nil {
+			return 0, err
+		}
+		var after int
+		if err := tx.QueryRow(`SELECT COUNT(*) FROM memories`).Scan(&after); err != nil {
+			return 0, err
+		}
+		if imported = after - before; imported < 0 {
+			imported = 0
+		}
+		if _, err := tx.Exec(`DELETE FROM meta WHERE key=?`, metaReplay); err != nil {
 			return 0, err
 		}
 	}
@@ -992,9 +1062,10 @@ func (ix *Index) Scopes() ([]ScopeInfo, error) {
 // rescope that only touched the local index would be undone on every other
 // machine, which replays the original scope from the log.
 func (ix *Index) Rescope(from, to string) (int, error) {
+	at := ix.now()
 	if ix.log != nil {
 		if err := ix.log.Append(wirelog.RescopeLine{
-			Header: wirelog.NewHeader(wirelog.TypeRescope, ix.now()), From: from, To: to,
+			Header: wirelog.NewHeader(wirelog.TypeRescope, at), From: from, To: to,
 		}); err != nil {
 			return 0, fmt.Errorf("index: wire log: %w", err)
 		}
@@ -1004,7 +1075,7 @@ func (ix *Index) Rescope(from, to string) (int, error) {
 		return 0, err
 	}
 	defer tx.Rollback()
-	n, err := applyRescope(tx, from, to)
+	n, err := applyRescope(tx, at.UTC().Format(time.RFC3339Nano), from, to)
 	if err != nil {
 		return 0, err
 	}

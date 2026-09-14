@@ -8,6 +8,20 @@ next agent in the loop.
 
 ---
 
+## v1.18 (closing the open items from the spec review)
+
+**Import order no longer changes the result (§3.3, §5.3).** The review found
+that incremental import could leave one machine's index different from
+another's and from a rebuild: a rescope applied whenever it arrived moved
+whatever was in the scope then, and a close, note link or checkpoint row naming
+a memory not imported yet did nothing and was never retried. A rescope now
+leaves an alias from the old scope id, out-of-order rescopes trigger a replay
+of the whole log, and lines naming a missing memory wait for it. Import
+rereads a file whose bytes before the saved position changed, checkpoints carry
+the project registry, and a rebuilt index keeps each day's full use counts.
+
+---
+
 ## v1.17.1 (notes are a view of memory)
 
 **The concept mirror is not built, by decision (§5.2, §7.3, §4.4).** The spec

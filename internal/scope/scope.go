@@ -42,15 +42,29 @@ var nonSlug = regexp.MustCompile(`[^a-z0-9]+`)
 // down, and a memory written from a subdirectory belongs to the same brain.
 func Resolve(explicit string) string {
 	if s := strings.TrimSpace(explicit); s != "" {
-		return s
+		return canon(s)
 	}
 	if s := strings.TrimSpace(os.Getenv("MEMBRAID_SCOPE")); s != "" {
-		return s
+		return canon(s)
 	}
 	if s := FromDir(""); s != "" {
-		return s
+		return canon(s)
 	}
 	return Shared
+}
+
+var canonical func(string) string
+
+// SetCanonical installs the lookup from a scope id to where its memories live
+// now. A rescope moves a project's memories to a new id; a checkout that still
+// derives the old one reads and writes the project where it went.
+func SetCanonical(f func(string) string) { canonical = f }
+
+func canon(s string) string {
+	if canonical == nil || s == Shared || s == Unscoped || s == "*" {
+		return s
+	}
+	return canonical(s)
 }
 
 // ResolveWrite picks the scope a write lands in: an explicit scope, then
@@ -68,10 +82,10 @@ func ResolveWrite(explicit string) (string, error) {
 		case Unscoped:
 			return "", fmt.Errorf(`scope "unscoped" is where writes with no project land and cannot be chosen; write to a project or to "shared"`)
 		}
-		return s, nil
+		return canon(s), nil
 	}
 	if s := FromDir(""); s != "" {
-		return s, nil
+		return canon(s), nil
 	}
 	return Unscoped, nil
 }

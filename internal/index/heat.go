@@ -427,7 +427,7 @@ func applyHeat(tx *sql.Tx, c wirelog.CheckpointLine, host, self string) error {
 		if h.Key == "" && h.ID == "" {
 			continue
 		}
-		subject := subjectFor(h.Scope, h.Kind, NormalizeKey(h.Key), h.ID)
+		subject := subjectFor(resolveScope(tx, h.Scope), h.Kind, NormalizeKey(h.Key), h.ID)
 		var cur string
 		var err error
 		if local {
@@ -456,8 +456,12 @@ func applyHeat(tx *sql.Tx, c wirelog.CheckpointLine, host, self string) error {
 		return nil
 	}
 	if local {
+		// Each line carries the day's count so far, and counts only grow, so the
+		// largest is the newest. Keeping the first line's, as before, left a
+		// rebuilt index with the count as of the day's first checkpoint.
 		for _, u := range c.Uses {
-			if _, err := tx.Exec(`INSERT OR IGNORE INTO use_counts (host, day, source, n) VALUES (?,?,?,?)`, host, u.Day, u.Source, u.N); err != nil {
+			if _, err := tx.Exec(`INSERT INTO use_counts (host, day, source, n) VALUES (?,?,?,?)
+				ON CONFLICT(host, day, source) DO UPDATE SET n = MAX(n, excluded.n)`, host, u.Day, u.Source, u.N); err != nil {
 				return err
 			}
 		}

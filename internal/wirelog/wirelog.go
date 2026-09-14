@@ -103,6 +103,20 @@ type CheckpointLine struct {
 	// type or version, either of which older binaries refuse outright.
 	Heat []CheckpointHeat `json:"heat,omitempty"`
 	Uses []CheckpointUse  `json:"uses,omitempty"`
+	// Scopes is another optional addition (SPEC changelog v1.18): projects the
+	// writing machine has seen, with the name it knows them by, so a rebuilt
+	// index still knows what each scope id is called.
+	Scopes []CheckpointScope `json:"scopes,omitempty"`
+}
+
+// CheckpointScope is one project in the writing machine's registry. Path is
+// that machine's checkout, meaningful only to it.
+type CheckpointScope struct {
+	Scope     string `json:"scope"`
+	Name      string `json:"name"`
+	Path      string `json:"path,omitempty"`
+	FirstSeen string `json:"first_seen"`
+	LastSeen  string `json:"last_seen"`
 }
 
 // CheckpointHeat is one subject's use heat on the machine that wrote the line:

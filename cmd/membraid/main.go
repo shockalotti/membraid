@@ -1021,6 +1021,7 @@ func openIndex(v *vault.Vault, cfg config.Config) (*index.Index, func(), error) 
 	if _, err := ix.ImportAll(); err != nil {
 		fmt.Fprintln(os.Stderr, "membraid: could not import from the wire log:", err)
 	}
+	scope.SetCanonical(ix.CanonicalScope)
 	_ = ix.TouchScope(scope.Resolve(""), scope.Name(""), scope.Dir())
 	return ix, func() { ix.Close(); lg.Close() }, nil
 }

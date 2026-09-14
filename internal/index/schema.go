@@ -6,7 +6,7 @@
 // may not.
 package index
 
-const schemaVersion = 4
+const schemaVersion = 5
 
 const schemaSQL = `
 CREATE TABLE IF NOT EXISTS memories (
@@ -88,6 +88,29 @@ CREATE TABLE IF NOT EXISTS use_counts (
   source TEXT NOT NULL,
   n      REAL NOT NULL,
   PRIMARY KEY (host, day, source)
+);
+
+-- Import order (schema 5). Every rescope applied, so a reread does nothing and
+-- one arriving out of order is noticed; the aliases they leave, old scope id to
+-- new; and what a close, distill or checkpoint line said about a memory that
+-- was not here yet, applied when its write arrives. A machine whose clock is
+-- behind can stamp a close earlier than the write it closes.
+CREATE TABLE IF NOT EXISTS rescopes (
+  ts  TEXT NOT NULL,
+  src TEXT NOT NULL,
+  dst TEXT NOT NULL,
+  PRIMARY KEY (ts, src, dst)
+);
+CREATE TABLE IF NOT EXISTS scope_aliases (
+  src TEXT PRIMARY KEY,
+  dst TEXT NOT NULL
+);
+CREATE TABLE IF NOT EXISTS pending_refs (
+  id    TEXT NOT NULL,
+  kind  TEXT NOT NULL,
+  ts    TEXT NOT NULL,
+  value TEXT NOT NULL DEFAULT '',
+  PRIMARY KEY (id, kind, ts, value)
 );
 
 CREATE TABLE IF NOT EXISTS scopes (
