@@ -28,9 +28,12 @@ type Config struct {
 	PullIntervalMin int `json:"pull_interval_min"`
 	// Host names this machine's wire-log file. Empty means the hostname.
 	Host string `json:"host,omitempty"`
-	// HalflifeDays is how many days without being retrieved it takes for a
-	// memory's search rank to halve (SPEC 7.2). Retrieval resets the clock.
-	HalflifeDays int `json:"halflife_days"`
+	// DistillEveryMin is how often the scheduled sync writes readable notes
+	// (SPEC 15 distill_every, minimum 5 minutes).
+	DistillEveryMin int `json:"distill_every_min"`
+	// SweepEveryDays is how often the scheduled sync runs upkeep (SPEC 15
+	// sweep_every).
+	SweepEveryDays int `json:"sweep_every_days"`
 	// Embeddings turns on search by meaning: "off" (the default, also when
 	// empty), "ollama" or "builtin". Vectors stay in this machine's index.
 	Embeddings string `json:"embeddings,omitempty"`
@@ -43,7 +46,20 @@ type Config struct {
 func (c Config) EmbeddingsOn() bool { return c.Embeddings != "" && c.Embeddings != "off" }
 
 func Defaults() Config {
-	return Config{AutoSync: true, PushDelaySec: 60, PullIntervalMin: 15, HalflifeDays: 30}
+	return Config{AutoSync: true, PushDelaySec: 60, PullIntervalMin: 15, DistillEveryMin: 30, SweepEveryDays: 7}
+}
+
+// LocalKeys are this machine's settings, with what each means. Ranking and
+// upkeep thresholds are the user's and live in the vault (SharedKeys).
+var LocalKeys = map[string]string{
+	"auto_sync":         "push shortly after writes, pull when a session starts (true or false)",
+	"push_delay_sec":    "seconds writes must go quiet before a push (5 or more)",
+	"pull_interval_min": "how stale a scheduled pull may get, in minutes",
+	"distill_every_min": "how often the scheduled sync writes readable notes, in minutes (5 or more)",
+	"sweep_every_days":  "how often the scheduled sync runs upkeep, in days (1 to 90)",
+	"embeddings":        "search by meaning: off, ollama or builtin",
+	"embed_model":       "the Ollama model; empty for the default",
+	"host":              "names this machine's log file; empty for the hostname",
 }
 
 // Dir is MEMBRAID_CONFIG_DIR, or the platform config dir: ~/.config/membraid on
@@ -87,8 +103,15 @@ func (c *Config) clamp() {
 	if c.PullIntervalMin < 1 {
 		c.PullIntervalMin = 1
 	}
-	if c.HalflifeDays < 1 {
-		c.HalflifeDays = 30
+	if c.DistillEveryMin == 0 {
+		c.DistillEveryMin = 30
+	} else if c.DistillEveryMin < 5 {
+		c.DistillEveryMin = 5
+	}
+	if c.SweepEveryDays < 1 {
+		c.SweepEveryDays = 7
+	} else if c.SweepEveryDays > 90 {
+		c.SweepEveryDays = 90
 	}
 }
 
@@ -113,7 +136,7 @@ func (c *Config) Set(key, value string) error {
 			return fmt.Errorf("auto_sync takes true or false, got %q", value)
 		}
 		c.AutoSync = b
-	case "push_delay_sec", "pull_interval_min", "halflife_days":
+	case "push_delay_sec", "pull_interval_min", "distill_every_min", "sweep_every_days":
 		n, err := strconv.Atoi(strings.TrimSpace(value))
 		if err != nil || n < 1 {
 			return fmt.Errorf("%s takes a positive whole number, got %q", key, value)
@@ -123,8 +146,10 @@ func (c *Config) Set(key, value string) error {
 			c.PushDelaySec = n
 		case "pull_interval_min":
 			c.PullIntervalMin = n
+		case "distill_every_min":
+			c.DistillEveryMin = n
 		default:
-			c.HalflifeDays = n
+			c.SweepEveryDays = n
 		}
 	case "host":
 		c.Host = strings.TrimSpace(value)
@@ -138,7 +163,7 @@ func (c *Config) Set(key, value string) error {
 	case "embed_model":
 		c.EmbedModel = strings.TrimSpace(value)
 	default:
-		return fmt.Errorf("unknown setting %q (auto_sync, push_delay_sec, pull_interval_min, halflife_days, host, embeddings, embed_model)", key)
+		return fmt.Errorf("unknown setting %q (auto_sync, push_delay_sec, pull_interval_min, distill_every_min, sweep_every_days, host, embeddings, embed_model)", key)
 	}
 	c.clamp()
 	return nil

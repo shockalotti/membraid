@@ -75,6 +75,21 @@ func (ix *Index) VectorCoverage(model string) (have, total int, err error) {
 	return have, total, err
 }
 
+// Unembedded returns which of ids have no vector for model yet.
+func (ix *Index) Unembedded(ids []string, model string) (map[string]bool, error) {
+	out := map[string]bool{}
+	for _, id := range ids {
+		var n int
+		if err := ix.db.QueryRow(`SELECT COUNT(*) FROM vectors WHERE id=? AND model=?`, id, model).Scan(&n); err != nil {
+			return nil, err
+		}
+		if n == 0 {
+			out[id] = true
+		}
+	}
+	return out, nil
+}
+
 // DropOtherVectors deletes vectors made by any model other than model. After a
 // change of embedder the old vectors can never be compared with new queries,
 // so they are only dead weight. Returns how many were removed.

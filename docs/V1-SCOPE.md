@@ -113,7 +113,7 @@ decision now is to build them rather than wait. Agreed sequence:
 2. **8b** - retrieval tracking, decay in ranking, digest scoring (`membraid context --explain`), cross-machine retrieval checkpoints, and guidance for agents to rephrase a search that misses. **Done**
 3. **Hybrid search** (§16 M11) - pure Go vector search, embeddings optional ([SEARCH-EVALUATION.md](SEARCH-EVALUATION.md)). **done** - vector store, local embedders (Ollama EmbeddingGemma or built-in all-MiniLM), `membraid embed`, vector-only search with keyword fallback, installer option 
 4. **10** - sweep **Done**: `membraid sweep`, weekly from the sync timer: counts memories unused for 90+ days (left to fade, never deleted), flags open tasks untouched for 14+ days in the digest and status, checkpoints retrieval state, reports to log.md. Concept archival waits for distillation.
-5. **9** - distillation, kept for its readable per-subject markdown files **Done**: `membraid distill`, every 30 minutes from the sync timer: subjects written twice or in two sessions become readable draft notes with their history; a note a person edits is never overwritten. Unkeyed clustering waits.
+5. **9** - distillation, kept for its readable per-subject markdown files **Done**: `membraid distill`, every 30 minutes from the sync timer (`distill_every_min`): subjects written twice or in two sessions become readable draft notes with their history; a note a person edits is never overwritten. Unkeyed clustering waits.
 6. **Ranking by use** **Done**: heat from writes and reported uses (`memory_used`, key lookups) replaces decay by retrieval, which any search result used to reset; `search --explain`; ranking settings in the vault; a Tuning section in the widget. SPEC v1.16.
 
 | # | Slice | SPEC ref |
@@ -175,6 +175,9 @@ does not exist on day one, and each is cheap to add when it does.
 |---|---|
 | Codex, live session | Installed and loads the skill and MCP server; never run against a model. Needs an OpenAI login or a local model: Codex no longer accepts the chat completions API that Gemini's compatible endpoint offers |
 | Cursor CLI, live session | Installed; `cursor-agent mcp list-tools` shows the tools. Needs a Cursor login, and whether Cursor shows hook context to the model is decided on its servers |
+| `memory_propose` and `confidence` | Not built. Agents write memories directly and every memory counts equally; nothing has shown a need for a proposal step or a confidence score yet |
+| Heat of a memory replaced without a key | A memory without a key keeps its use heat under its own id, so when a near-verbatim restatement replaces it (v1.18) the new one starts with only its own write. Carry the heat over if the digest is seen dropping restated facts |
+| Fuzzy threshold | 0.95 by default, chosen on constructed pairs. Check the log's `matchScore` values after some weeks of real writes (SPEC 6.2 expects this tuning pass) |
 | Embedding speed on the minipc | Measured on wynneclaw1 (4-core, Ollama EmbeddingGemma q4_0): 8.6 s to embed 9 memories cold, about 0.16 s per search. Write it up in SEARCH-EVALUATION.md with a larger store |
 
 **The wire-log line format is not deferred and not provisional.** It is the one

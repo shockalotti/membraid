@@ -197,6 +197,10 @@ type Memory struct {
 	Source     string
 	Confidence *float64
 	SessionRef string
+	// Replaces names current memories this write corrects, by id: the
+	// explicit supersession of SPEC 6.2, for a memory without a key. It
+	// replaces the fuzzy match; a key still closes its own subject too.
+	Replaces []string
 }
 
 type WriteResult struct {
@@ -213,14 +217,21 @@ var ErrNothingToClose = errors.New("index: no open task matches")
 var ErrNothingToForget = errors.New("index: no current memory matches")
 
 var keySep = regexp.MustCompile(`[\s._/\-]+`)
-var keyJunk = regexp.MustCompile(`[^a-z0-9.]`)
+
+// keyJunk is every character that is neither a letter or digit nor a
+// separator. It is removed before separators collapse: removed after, as
+// before, editor.!.theme became editor..theme.
+var keyJunk = regexp.MustCompile(`[^a-z0-9\s._/\-]`)
+
+// ErrEmptyKey is a key given with no letters or digits in it.
+var ErrEmptyKey = errors.New("index: the key has no letters or digits; use a dotted name like editor.theme, or leave the key out")
 
 // NormalizeKey collapses different agents' punctuation habits onto one spelling
 // (SPEC §6.3): editor.theme, Editor_Theme and editor..theme are one subject.
 func NormalizeKey(k string) string {
 	k = strings.ToLower(strings.TrimSpace(k))
-	k = keySep.ReplaceAllString(k, ".")
 	k = keyJunk.ReplaceAllString(k, "")
+	k = keySep.ReplaceAllString(k, ".")
 	return strings.Trim(k, ".")
 }
 
@@ -245,7 +256,12 @@ func (ix *Index) Write(m Memory) (*WriteResult, error) {
 	if m.ID == "" {
 		m.ID = NewID()
 	}
-	m.Key = NormalizeKey(m.Key)
+	given := strings.TrimSpace(m.Key) != ""
+	if m.Key = NormalizeKey(m.Key); given && m.Key == "" {
+		// Writing it unkeyed would silently lose the replace-by-key the caller
+		// asked for.
+		return nil, ErrEmptyKey
+	}
 	m.Scope = ix.CanonicalScope(m.Scope)
 	at := ix.now()
 
@@ -270,7 +286,7 @@ func (ix *Index) Write(m Memory) (*WriteResult, error) {
 				line.Superseded = append(line.Superseded, wirelog.Superseded{ID: c.id, Key: m.Key})
 			}
 		}
-	} else {
+	} else if len(m.Replaces) == 0 {
 		// No key: only a near-verbatim restatement replaces anything. The log
 		// records what was closed, so replay never recomputes the match.
 		matches, err := ix.fuzzyMatches(m.Scope, m.Kind, m.Content, ix.Ranking().FuzzyThreshold)
@@ -283,6 +299,20 @@ func (ix *Index) Write(m Memory) (*WriteResult, error) {
 			for _, fm := range matches {
 				score := math.Round(fm.score*1000) / 1000
 				line.Superseded = append(line.Superseded, wirelog.Superseded{ID: fm.id, MatchScore: &score})
+			}
+		}
+	}
+	if len(m.Replaces) > 0 {
+		mode := wirelog.ModeExplicit
+		line.SupersedeMode = &mode
+		listed := map[string]bool{m.ID: true}
+		for _, s := range line.Superseded {
+			listed[s.ID] = true
+		}
+		for _, id := range m.Replaces {
+			if id = strings.TrimSpace(id); id != "" && !listed[id] {
+				listed[id] = true
+				line.Superseded = append(line.Superseded, wirelog.Superseded{ID: id})
 			}
 		}
 	}

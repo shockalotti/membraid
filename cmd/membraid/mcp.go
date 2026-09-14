@@ -384,8 +384,9 @@ func toolDefs(semantic bool) []map[string]any {
 							"If it will still be true at the end of the session it is not task_state. " +
 							"Give task_state a key such as task.auth.fix, and call memory_done when it is finished.",
 					},
-					"key":   map[string]any{"type": "string", "description": keyGuidance},
-					"scope": map[string]any{"type": "string", "description": "Omit for the current project. Use \"shared\" for something true everywhere, like a standing preference."},
+					"key":      map[string]any{"type": "string", "description": keyGuidance},
+					"scope":    map[string]any{"type": "string", "description": "Omit for the current project. Use \"shared\" for something true everywhere, like a standing preference."},
+					"replaces": map[string]any{"type": "string", "description": "To correct a memory that has no key: its id from memory_search. It is replaced by this one."},
 				},
 			},
 		},
@@ -456,15 +457,16 @@ func (s *mcpServer) callTool(req rpcRequest) {
 		return
 	}
 	var a struct {
-		IDs     []string `json:"ids"`
-		Keys    []string `json:"keys"`
-		Content string   `json:"content"`
-		Kind    string   `json:"kind"`
-		Key     string   `json:"key"`
-		ID      string   `json:"id"`
-		Scope   string   `json:"scope"`
-		Query   string   `json:"query"`
-		Limit   int      `json:"limit"`
+		IDs      []string `json:"ids"`
+		Keys     []string `json:"keys"`
+		Content  string   `json:"content"`
+		Kind     string   `json:"kind"`
+		Key      string   `json:"key"`
+		ID       string   `json:"id"`
+		Scope    string   `json:"scope"`
+		Query    string   `json:"query"`
+		Limit    int      `json:"limit"`
+		Replaces string   `json:"replaces"`
 	}
 	_ = json.Unmarshal(p.Arguments, &a)
 	sc := scope.Resolve(a.Scope)
@@ -478,7 +480,7 @@ func (s *mcpServer) callTool(req rpcRequest) {
 			return
 		}
 		similar, _ := s.ix.SimilarKeys(writeScope, a.Kind, a.Key)
-		res, err := s.ix.Write(index.Memory{Kind: a.Kind, Key: a.Key, Content: a.Content, Scope: writeScope, Source: s.source, SessionRef: s.session})
+		res, err := s.ix.Write(index.Memory{Kind: a.Kind, Key: a.Key, Content: a.Content, Scope: writeScope, Source: s.source, SessionRef: s.session, Replaces: nonEmpty(a.Replaces)})
 		if err != nil {
 			s.text(req.ID, err.Error(), true)
 			return

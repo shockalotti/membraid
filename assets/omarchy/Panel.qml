@@ -1170,6 +1170,21 @@ Panel {
                 onModified: function(v) { root.queueSetting("pull_interval_min", v) }
               }
             }
+            Row {
+              spacing: Style.spacing.xxl
+              NumberField {
+                label: "Notes every (min)"
+                from: 5; to: 1440; stepSize: 5
+                value: root.config.distill_every_min || 30
+                onModified: function(v) { root.queueSetting("distill_every_min", v) }
+              }
+              NumberField {
+                label: "Upkeep every (days)"
+                from: 1; to: 90; stepSize: 1
+                value: root.config.sweep_every_days || 7
+                onModified: function(v) { root.queueSetting("sweep_every_days", v) }
+              }
+            }
 
             PanelSectionHeader { text: "Ranking (saved in the vault: every machine ranks alike)"; foreground: root.foreground; fontFamily: root.fontFamily }
             Caption {
@@ -1207,6 +1222,21 @@ Panel {
                   from: 1; to: 50; stepSize: 1
                   value: root.config.digest_items || 12
                   onModified: function(v) { root.queueSetting("digest_items", v) }
+                }
+              }
+              Row {
+                spacing: Style.spacing.xxl
+                NumberField {
+                  label: "Stale after (days)"
+                  from: 7; to: 3650; stepSize: 10
+                  value: root.config.sweep_unused_days || 90
+                  onModified: function(v) { root.queueSetting("sweep_unused_days", v) }
+                }
+                NumberField {
+                  label: "Task stale after (days)"
+                  from: 1; to: 365; stepSize: 1
+                  value: root.config.stale_task_days || 14
+                  onModified: function(v) { root.queueSetting("stale_task_days", v) }
                 }
               }
               Body {

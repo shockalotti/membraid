@@ -33,10 +33,20 @@ type Ranking struct {
 	// travels with the ranking settings because it is the user's, not the
 	// machine's.
 	FuzzyThreshold float64 `json:"fuzzy_supersede_threshold"`
+	// SweepUnusedDays is how long a memory can go unwritten and unretrieved
+	// before sweep counts it as stale (SPEC 15 sweep_unused_days).
+	SweepUnusedDays int `json:"sweep_unused_days"`
+	// StaleTaskDays is how long an open task can go untouched before it is
+	// flagged as possibly finished or abandoned. Flagged, never hidden.
+	StaleTaskDays int `json:"stale_task_days"`
 }
 
+// Ranking holds every setting of the user's, from the vault, that the index
+// applies: how memories are ranked, when one replaces another, and when one
+// counts as stale.
 func DefaultRanking() Ranking {
-	return Ranking{HalflifeDays: defaultHalflifeDays, FrequencyBoost: 1, DigestItems: 12, DigestSharedWeight: 0.7, FuzzyThreshold: 0.95}
+	return Ranking{HalflifeDays: defaultHalflifeDays, FrequencyBoost: 1, DigestItems: 12, DigestSharedWeight: 0.7,
+		FuzzyThreshold: 0.95, SweepUnusedDays: 90, StaleTaskDays: 14}
 }
 
 // Clamped replaces any value outside its meaningful range with the default.
@@ -56,6 +66,12 @@ func (r Ranking) Clamped() Ranking {
 	}
 	if r.FuzzyThreshold < 0.8 || r.FuzzyThreshold > 1 || math.IsNaN(r.FuzzyThreshold) {
 		r.FuzzyThreshold = d.FuzzyThreshold
+	}
+	if r.SweepUnusedDays < 7 || r.SweepUnusedDays > 3650 {
+		r.SweepUnusedDays = d.SweepUnusedDays
+	}
+	if r.StaleTaskDays < 1 || r.StaleTaskDays > 365 {
+		r.StaleTaskDays = d.StaleTaskDays
 	}
 	return r
 }

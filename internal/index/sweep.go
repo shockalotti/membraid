@@ -14,18 +14,6 @@ import (
 // Archiving concept notes waits: distillation writes notes, but they never
 // reach the index, so sweep has nothing to archive them by (V1-SCOPE).
 
-const (
-	// SweepUnusedDays is how long a memory can go unwritten and unretrieved
-	// before sweep counts it as stale (SPEC §15 sweep_unused_days).
-	SweepUnusedDays = 90
-	// StaleTaskDays is how long an open task can go untouched before it is
-	// flagged as possibly finished or abandoned. Flagged, never hidden.
-	StaleTaskDays = 14
-	// SweepEvery is how often the scheduled sync runs a sweep (SPEC §15
-	// sweep_every).
-	SweepEvery = 7 * 24 * time.Hour
-)
-
 // SweepReport is what one pass found.
 type SweepReport struct {
 	At string `json:"at"`
@@ -39,12 +27,18 @@ type SweepReport struct {
 	// Unscoped is how many current memories are quarantined with no project:
 	// a growing number means an agent runs where no project resolves (SPEC 17).
 	Unscoped int `json:"unscoped"`
+	// UnusedDays and TaskDays are the thresholds this pass used
+	// (sweep_unused_days, stale_task_days).
+	UnusedDays int `json:"unused_days"`
+	TaskDays   int `json:"task_days"`
 }
 
 // Sweep runs one pass. Maintenance never counts as retrieval (SPEC 7.2).
 func (ix *Index) Sweep() (*SweepReport, error) {
 	now := ix.now()
-	r := &SweepReport{At: now.UTC().Format(time.RFC3339), Unscoped: ix.UnscopedCount()}
+	rk := ix.Ranking()
+	r := &SweepReport{At: now.UTC().Format(time.RFC3339), Unscoped: ix.UnscopedCount(),
+		UnusedDays: rk.SweepUnusedDays, TaskDays: rk.StaleTaskDays}
 	rows, err := ix.db.Query(`SELECT kind, valid_from, last_retrieved, source_concept IS NOT NULL
 	                            FROM memories WHERE valid_to IS NULL`)
 	if err != nil {
@@ -64,10 +58,10 @@ func (ix *Index) Sweep() (*SweepReport, error) {
 			last = *retrieved
 		}
 		unused := ix.unusedDays(validFrom, last)
-		if kind == KindTaskState && unused >= StaleTaskDays {
+		if kind == KindTaskState && unused >= float64(rk.StaleTaskDays) {
 			r.StaleTasks++
 		}
-		if !linked && unused >= SweepUnusedDays {
+		if !linked && unused >= float64(rk.SweepUnusedDays) {
 			r.StaleRows++
 		}
 	}
@@ -97,17 +91,23 @@ func (ix *Index) LastSweep() *SweepReport {
 	if json.Unmarshal([]byte(raw), &r) != nil {
 		return nil
 	}
+	// Reports from before the thresholds were settings used the defaults.
+	if r.UnusedDays == 0 {
+		d := DefaultRanking()
+		r.UnusedDays, r.TaskDays = d.SweepUnusedDays, d.StaleTaskDays
+	}
 	return &r
 }
 
-// SweepDue reports whether SweepEvery has passed since the last sweep.
-func (ix *Index) SweepDue() bool {
+// SweepDue reports whether every has passed since the last sweep
+// (sweep_every_days, a per-machine setting).
+func (ix *Index) SweepDue(every time.Duration) bool {
 	r := ix.LastSweep()
 	if r == nil {
 		return true
 	}
 	t, err := time.Parse(time.RFC3339, r.At)
-	return err != nil || ix.now().Sub(t) >= SweepEvery
+	return err != nil || ix.now().Sub(t) >= every
 }
 
 // StaleTasks returns open tasks in scope untouched for StaleTaskDays, mapped
@@ -137,7 +137,7 @@ func (ix *Index) StaleTasks(scope string) (map[string]float64, error) {
 		if retrieved != nil {
 			last = *retrieved
 		}
-		if days := ix.unusedDays(validFrom, last); days >= StaleTaskDays {
+		if days := ix.unusedDays(validFrom, last); days >= float64(ix.Ranking().StaleTaskDays) {
 			out[id] = days
 		}
 	}

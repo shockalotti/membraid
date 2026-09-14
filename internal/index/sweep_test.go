@@ -57,21 +57,21 @@ func TestSweepIsWeeklyAndRemembersItsReport(t *testing.T) {
 	ix := newIndex(t)
 	clock := time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)
 	ix.SetClock(func() time.Time { return clock })
-	if !ix.SweepDue() || ix.LastSweep() != nil {
+	if !ix.SweepDue(7*24*time.Hour) || ix.LastSweep() != nil {
 		t.Fatal("an index that never swept is due, with no report")
 	}
 	ix.Write(Memory{Kind: KindInsight, Content: "something", Source: "x"})
 	if _, err := ix.Sweep(); err != nil {
 		t.Fatal(err)
 	}
-	if ix.SweepDue() {
+	if ix.SweepDue(7 * 24 * time.Hour) {
 		t.Error("a sweep just ran, so another is not due")
 	}
 	if r := ix.LastSweep(); r == nil || r.Current != 1 {
 		t.Errorf("the last report must be kept, got %+v", r)
 	}
-	clock = clock.Add(SweepEvery)
-	if !ix.SweepDue() {
+	clock = clock.Add((7 * 24 * time.Hour))
+	if !ix.SweepDue(7 * 24 * time.Hour) {
 		t.Error("a week later a sweep is due again")
 	}
 }

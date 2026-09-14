@@ -76,6 +76,8 @@ Sync settings (membraid config set ...):
   embeddings         off    search by meaning: off, ollama or builtin (local only)
   embed_model        (default)  Ollama model; default embeddinggemma:300m-qat-q4_0
   host               (hostname)  names this machine's log file
+  distill_every_min  30     how often the scheduled sync writes readable notes (5 or more)
+  sweep_every_days   7      how often the scheduled sync runs upkeep
 
 Ranking settings (also membraid config set; stored in the vault, so every machine ranks alike):
   halflife_days          30   days for a write's or a use's weight to halve
@@ -83,6 +85,10 @@ Ranking settings (also membraid config set; stored in the vault, so every machin
   digest_items           12   known facts a session starts with
   digest_shared_weight   0.7  weight of shared memories against the project's own in the digest
   fuzzy_supersede_threshold  0.95  how alike a memory without a key must be to an earlier one to replace it (0.8 to 1)
+  sweep_unused_days      90   days unwritten and unused before upkeep counts a memory as stale
+  stale_task_days        14   days untouched before an open task is flagged
+
+membraid config (no arguments) shows every setting's value in effect and where it is kept.
 
 The vault is plain text in a git repo you own: every memory is a line in .hot/writes-*.jsonl.
 `
@@ -123,7 +129,7 @@ func run(args []string) error {
 	binFlag := fs.String("bin", "", "install: binary path harness configs should use")
 	check := fs.Bool("check", false, "update: only report whether a newer release exists")
 	releaseTag := fs.String("version", "", "update: install this release (e.g. v0.4.0) instead of the latest")
-	replaces := fs.String("replaces", "", "write: the id of a memory this one corrects, which is retired")
+	replaces := fs.String("replaces", "", "write: the id of a memory this one corrects, which it replaces")
 	noTrack := fs.Bool("no-track", false, "search: a person browsing, so results are not counted as used")
 	days := fs.Int("days", 7, "insights: how many days to look back")
 	list := fs.Bool("list", false, "install: list harnesses and whether membraid is set up in each, as JSON")
@@ -197,7 +203,7 @@ func run(args []string) error {
 			similar, _ := ix.SimilarKeys(writeScope, *kind, *key)
 			res, err := ix.Write(index.Memory{
 				Kind: *kind, Key: *key, Content: strings.Join(fs.Args(), " "),
-				Scope: writeScope, Source: *source,
+				Scope: writeScope, Source: *source, Replaces: nonEmpty(*replaces),
 			})
 			if err != nil {
 				return err
@@ -217,13 +223,10 @@ func run(args []string) error {
 			if note := similarKeyNote(*key, similar); note != "" {
 				fmt.Fprintln(os.Stderr, "membraid: "+note)
 			}
-			// A correction to a memory without a key: the new statement cannot
-			// supersede the old one by key, so the old one is retired by id. One
-			// already superseded above has nothing left to retire.
-			if *replaces != "" && *replaces != res.ID && !contains(res.Superseded, *replaces) {
-				if _, err := ix.Forget("", "", *replaces); err != nil {
-					fmt.Fprintf(os.Stderr, "membraid: wrote the correction, but could not retire %s: %v\n", *replaces, err)
-				}
+			// A correction to a memory without a key supersedes it by id, so its
+			// history shows what replaced it rather than a bare forget.
+			if *replaces != "" && !contains(res.Superseded, *replaces) {
+				fmt.Fprintf(os.Stderr, "membraid: wrote the correction, but %s was not a current memory, so nothing was replaced\n", *replaces)
 			}
 			return nil
 		})
@@ -499,6 +502,9 @@ func run(args []string) error {
 			if in.KeyDrift, err = ix.KeyDrift("*"); err != nil {
 				return err
 			}
+			if in.KeyDrift == nil {
+				in.KeyDrift = []index.KeyPair{}
+			}
 			for i := range in.KeyDrift {
 				in.KeyDrift[i].ScopeName = scopeLabel(names, in.KeyDrift[i].Scope)
 			}
@@ -651,7 +657,7 @@ func run(args []string) error {
 			}
 			if r := ix.LastSweep(); r != nil {
 				fmt.Printf("sweep  %s: %d unused for %d+ days, %d open tasks untouched for %d+ days\n",
-					r.At[:10], r.StaleRows, index.SweepUnusedDays, r.StaleTasks, index.StaleTaskDays)
+					r.At[:10], r.StaleRows, r.UnusedDays, r.StaleTasks, r.TaskDays)
 			}
 			switch si := searchStatus(cfg, ix); si["mode"] {
 			case "vector":
@@ -754,14 +760,14 @@ func run(args []string) error {
 				fmt.Println(describeResult(res, imported))
 			}
 			embedAfterSync(cfg, ix, *quiet)
-			if *scheduled && ix.RunDue("distill", distillEvery) {
+			if *scheduled && ix.RunDue("distill", time.Duration(cfg.DistillEveryMin)*time.Minute) {
 				if r, err := runDistill(v, ix); err != nil {
 					fmt.Fprintln(os.Stderr, "membraid: distill:", err)
 				} else if len(r.Paths) > 0 && !*quiet {
 					fmt.Println(distillSummary(r))
 				}
 			}
-			if *scheduled && ix.SweepDue() {
+			if *scheduled && ix.SweepDue(time.Duration(cfg.SweepEveryDays)*24*time.Hour) {
 				if r, err := runSweep(v, ix); err != nil {
 					fmt.Fprintln(os.Stderr, "membraid: sweep:", err)
 				} else if !*quiet {
@@ -853,13 +859,14 @@ func run(args []string) error {
 				"halflife_days": rank.HalflifeDays, "frequency_boost": rank.FrequencyBoost,
 				"digest_items": rank.DigestItems, "digest_shared_weight": rank.DigestSharedWeight,
 				"fuzzy_supersede_threshold": rank.FuzzyThreshold,
-				"embeddings":                embeddings, "embed_model": model,
+				"sweep_unused_days":         rank.SweepUnusedDays, "stale_task_days": rank.StaleTaskDays,
+				"distill_every_min": cfg.DistillEveryMin, "sweep_every_days": cfg.SweepEveryDays,
+				"embeddings": embeddings, "embed_model": model,
 				"host": cfg.HostName(), "path": config.Path(),
 			})
 		}
 		if fs.NArg() == 0 {
-			buf, _ := json.MarshalIndent(cfg, "", "  ")
-			fmt.Printf("%s\n\n# %s\n", buf, config.Path())
+			printConfig(v, cfg)
 			return nil
 		}
 		if fs.Arg(0) != "set" || fs.NArg() != 3 {
@@ -915,9 +922,6 @@ func run(args []string) error {
 // Small on purpose. The whole memory would flood the context window and bury
 // the few things that matter; this is the digest, and memory_search is there
 // for everything else.
-// distillEvery is how often the scheduled sync writes concept notes (SPEC §15
-// distill_every).
-const distillEvery = 30 * time.Minute
 
 // runDistill writes concept notes for qualifying subjects and, when any file
 // was created or updated, says so in log.md. The next sync commits both.
@@ -970,7 +974,7 @@ func runSweep(v *vault.Vault, ix *index.Index) (*index.SweepReport, error) {
 
 func sweepSummary(r *index.SweepReport) string {
 	return fmt.Sprintf("sweep: %d current memories; %d unused for %d+ days, left to fade; %d open tasks untouched for %d+ days",
-		r.Current, r.StaleRows, index.SweepUnusedDays, r.StaleTasks, index.StaleTaskDays)
+		r.Current, r.StaleRows, r.UnusedDays, r.StaleTasks, r.TaskDays)
 }
 
 func buildContext(ix *index.Index, sc, name string) (string, error) {
@@ -1131,7 +1135,11 @@ func syncDue(v *vault.Vault, cfg config.Config) (bool, string) {
 	if !cfg.AutoSync {
 		return false, "auto_sync is off"
 	}
-	out, err := exec.Command("git", "-C", v.Root(), "status", "--porcelain").Output()
+	gitStatus := exec.Command("git", "-C", v.Root(), "status", "--porcelain")
+	// Only looking: without this, git status may refresh the index file, which
+	// takes the repository lock and can make a sync running now fail.
+	gitStatus.Env = append(os.Environ(), "GIT_OPTIONAL_LOCKS=0")
+	out, err := gitStatus.Output()
 	if err == nil && len(strings.TrimSpace(string(out))) > 0 {
 		return true, "uncommitted changes"
 	}
@@ -1406,9 +1414,6 @@ func day(ts string) string {
 // the vault still applies until the vault has one.
 func loadRanking(v *vault.Vault, cfg config.Config) index.Ranking {
 	r := index.DefaultRanking()
-	if cfg.HalflifeDays > 0 {
-		r.HalflifeDays = float64(cfg.HalflifeDays)
-	}
 	vals, err := config.LoadShared(v.HotPath())
 	if err != nil {
 		fmt.Fprintln(os.Stderr, "membraid: shared settings:", err)
@@ -1425,9 +1430,11 @@ func loadRanking(v *vault.Vault, cfg config.Config) index.Ranking {
 	float("frequency_boost", &r.FrequencyBoost)
 	float("digest_shared_weight", &r.DigestSharedWeight)
 	float("fuzzy_supersede_threshold", &r.FuzzyThreshold)
-	if s, ok := vals["digest_items"]; ok {
-		if n, err := strconv.Atoi(s); err == nil {
-			r.DigestItems = n
+	for key, into := range map[string]*int{"digest_items": &r.DigestItems, "sweep_unused_days": &r.SweepUnusedDays, "stale_task_days": &r.StaleTaskDays} {
+		if s, ok := vals[key]; ok {
+			if n, err := strconv.Atoi(s); err == nil {
+				*into = n
+			}
 		}
 	}
 	return r.Clamped()

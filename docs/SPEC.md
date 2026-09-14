@@ -1523,6 +1523,30 @@ Defaults, overridable via a config file (`~/.membraid/config.yaml`), flags, or e
 | `http_tls_cert` / `http_tls_key` | unset | TLS material for remote `--http` mode; required unless a TLS-terminating proxy fronts the daemon (§11). |
 | `tokens` | `{}` | Bearer token -> fixed `source` label map for remote callers, e.g. `{"tok-xxx": {source: dsh}}` (§10). Remote writes are attributed from this map, never from a call argument. |
 
+> **Implementation note (v1.18, what is configurable).** v1 has no daemon and no
+> config.yaml. Settings live in two places, split by whose they are, and
+> `membraid config` prints every value in effect with where it is kept:
+>
+> - **This machine** (`config.json` in the platform config directory):
+>   `auto_sync`, `push_delay_sec` and `pull_interval_min` (which replace
+>   `wire_log_commit_every`), `distill_every_min` (`distill_every`, minimum 5),
+>   `sweep_every_days` (`sweep_every`), `embeddings`, `embed_model`, `host`.
+> - **The vault** (`.hot/settings-<host>.json`, newest value per key wins, so
+>   every machine behaves alike): `halflife_days`, `frequency_boost`,
+>   `digest_items`, `digest_shared_weight`, `fuzzy_supersede_threshold` (default
+>   0.95, §6.2), `sweep_unused_days`, and `stale_task_days`, which the spec had as
+>   a constant.
+>
+> Not settings: `vault_path` is `--vault` or `MEMBRAID_VAULT`, the index lives
+> in the vault's `.hot` directory, and the scope default is `MEMBRAID_SCOPE`.
+> `candidate_k`, `retrieve_top_k` and `min_concept_results` have nothing to
+> tune: search takes a per-call `limit`, and concepts are not searched
+> (v1.17.1). Waiting on what they configure: `socket_path`, `port_path`,
+> `lock_path`, `token_path`, `idle_timeout`, `http_tls_cert`/`http_tls_key` and
+> `tokens` (the daemon and remote mode), and `archive_grace_days`,
+> `draft_ttl_days` and `draft_rank_factor` (concept archival and the concept
+> mirror).
+
 ### Testing seam
 
 `now` (a clock function) is injectable in the engine constructor. It is **not**

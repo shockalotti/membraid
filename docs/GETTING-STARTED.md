@@ -415,9 +415,23 @@ flowchart LR
 Heat is counted on each machine and travels with sync, and the ranking
 settings (`halflife_days`, `frequency_boost`, `digest_items`,
 `digest_shared_weight`) follow you, not the machine: `membraid config set`
-stores them in the vault, so every machine ranks alike. The widget's Settings
-tab has presets and, under *Advanced*, a live search that shows each result's
-score as you change them.
+stores them in the vault, so every machine ranks alike. So do
+`fuzzy_supersede_threshold` (how alike a memory written without a key must be
+to an earlier one to replace it) and the staleness thresholds
+`sweep_unused_days` and `stale_task_days`. How often notes are written and
+upkeep runs (`distill_every_min`, `sweep_every_days`) is each machine's own.
+`membraid config` prints every value in effect and where it is kept. The
+widget's Settings tab has presets and, under *Advanced*, a live search that
+shows each result's score as you change them.
+
+### Keys that drift
+
+Agents pick keys, so two of them can file one fact under `theme` and
+`editor.theme`, each with its own answer. An agent starting a key that looks
+like one already in use is told so when it writes. `membraid keys` lists every
+key with its counts and the pairs that look like one subject, and the widget's
+Insights tab shows the pairs. To merge a pair, write the answer under the key
+to keep, then `membraid forget` the other.
 
 ## Knowledge locations
 

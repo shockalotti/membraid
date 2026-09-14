@@ -36,6 +36,34 @@ one subject, the Insights tab shows the pairs, and a write that starts a new key
 resembling a live one says so in its reply. This replaces the spec's
 `memory_stats` tool, to keep the agent tool list short.
 
+**Every setting the build can honour is a setting (§15).** Distillation and
+sweep cadences and the staleness thresholds were constants, `membraid config`
+printed only this machine's file (including a `halflife_days` that the vault's
+value had replaced), and setting that one locally did nothing. Now:
+`distill_every_min` and `sweep_every_days` are this machine's;
+`sweep_unused_days` and `stale_task_days` join the ranking settings in the
+vault; the local `halflife_days` is gone; and `membraid config` prints every
+value in effect, grouped by where it is kept. The widget's Settings tab has all
+four. §15's note records which keys wait on the daemon, remote mode and the
+concept mirror.
+
+**Smaller fixes from the review.**
+
+- **Explicit supersession (§6.2).** A write can name the memories it corrects
+  (`replaces` on `memory_write`, `--replaces` on the CLI). They are superseded
+  with `supersede_mode: "explicit"`, so history shows the correction, where the
+  CLI used to forget the old memory separately.
+- **Key normalization order (§6.3).** Characters that are not separators were
+  removed after separators collapsed, so `editor.!.theme` became
+  `editor..theme`. They are removed first now, and a key with no letters or
+  digits left is refused instead of writing the memory unkeyed.
+- **Search with partial embeddings.** Vector search could not see memories not
+  embedded yet, so after a large import they vanished from search until the
+  embedder caught up. Keyword matches among them now follow the vector results.
+- **Sync check.** The `git status` that decides whether a scheduled sync is due
+  no longer takes git's optional index lock, which could fail a sync running at
+  the same moment.
+
 ---
 
 ## v1.17.1 (notes are a view of memory)

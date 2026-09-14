@@ -87,7 +87,8 @@ func searchMemories(ctx context.Context, e embed.Embedder, ix *index.Index, q, s
 		fmt.Fprintf(os.Stderr, "membraid: embeddings unavailable (%v); used keyword search\n", err)
 		return keyword()
 	}
-	if have, _, err := ix.VectorCoverage(e.Model()); err != nil || have == 0 {
+	have, total, err := ix.VectorCoverage(e.Model())
+	if err != nil || have == 0 {
 		return keyword()
 	}
 	qv, err := e.EmbedQuery(ctx, q)
@@ -96,7 +97,46 @@ func searchMemories(ctx context.Context, e embed.Embedder, ix *index.Index, q, s
 		return keyword()
 	}
 	hits, err := ix.VectorSearch(qv, e.Model(), sc, limit)
-	return hits, "vector", err
+	if err != nil || have >= total {
+		return hits, "vector", err
+	}
+	// Some memories have no vector yet (a large import, a slow embedder), and
+	// vector search cannot see them. Keyword matches among those come after
+	// the vector results rather than staying invisible until embedding catches up.
+	return withUnembedded(ix, e.Model(), hits, q, sc, limit)
+}
+
+func withUnembedded(ix *index.Index, model string, hits []index.Hit, q, sc string, limit int) ([]index.Hit, string, error) {
+	kw, err := ix.Search(q, sc, limit)
+	if err != nil || len(kw) == 0 {
+		return hits, "vector", nil
+	}
+	ids := make([]string, len(kw))
+	for i, h := range kw {
+		ids[i] = h.ID
+	}
+	missing, err := ix.Unembedded(ids, model)
+	if err != nil {
+		return hits, "vector", nil
+	}
+	seen := map[string]bool{}
+	for _, h := range hits {
+		seen[h.ID] = true
+	}
+	added := false
+	for _, h := range kw {
+		if missing[h.ID] && !seen[h.ID] {
+			hits = append(hits, h)
+			added = true
+		}
+	}
+	if len(hits) > limit {
+		hits = hits[:limit]
+	}
+	if added {
+		return hits, "vector+keyword", nil
+	}
+	return hits, "vector", nil
 }
 
 // embedAfterSync embeds any backlog after a CLI or scheduled sync, so memories

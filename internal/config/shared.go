@@ -28,6 +28,8 @@ var SharedKeys = map[string]string{
 	"digest_items":              "how many known facts a session starts with (1 to 50)",
 	"digest_shared_weight":      "weight of shared memories against this project's in the digest (above 0, up to 1)",
 	"fuzzy_supersede_threshold": "how alike a memory written without a key must be to an earlier one to replace it: 0.8 to 1, default 0.95 (1: the same words, ignoring case and punctuation)",
+	"sweep_unused_days":         "days unwritten and unused before upkeep counts a memory as stale (7 to 3650, default 90)",
+	"stale_task_days":           "days untouched before an open task is flagged as possibly finished (1 to 365, default 14)",
 }
 
 // IsShared reports whether key is a vault setting.
@@ -108,6 +110,18 @@ func ValidateShared(key, value string) (string, error) {
 		n, err := strconv.Atoi(value)
 		if err != nil || n < 1 || n > 50 {
 			return "", fmt.Errorf("digest_items takes a whole number from 1 to 50, got %q", value)
+		}
+		return strconv.Itoa(n), nil
+	case "sweep_unused_days":
+		n, err := strconv.Atoi(value)
+		if err != nil || n < 7 || n > 3650 {
+			return "", fmt.Errorf("sweep_unused_days takes a whole number from 7 to 3650, got %q", value)
+		}
+		return strconv.Itoa(n), nil
+	case "stale_task_days":
+		n, err := strconv.Atoi(value)
+		if err != nil || n < 1 || n > 365 {
+			return "", fmt.Errorf("stale_task_days takes a whole number from 1 to 365, got %q", value)
 		}
 		return strconv.Itoa(n), nil
 	case "frequency_boost":
