@@ -81,6 +81,7 @@ Ranking settings (also membraid config set; stored in the vault, so every machin
   frequency_boost        1    how much repeated use lifts a memory (0 to 5; 0 = only keeps it fresh)
   digest_items           12   known facts a session starts with
   digest_shared_weight   0.7  weight of shared memories against the project's own in the digest
+  fuzzy_supersede_threshold  0.95  how alike a memory without a key must be to an earlier one to replace it (0.8 to 1)
 
 The vault is plain text in a git repo you own: every memory is a line in .hot/writes-*.jsonl.
 `
@@ -204,7 +205,11 @@ func run(args []string) error {
 			}
 			fmt.Printf("wrote %s", res.ID)
 			if n := len(res.Superseded); n > 0 {
-				fmt.Printf(" (replaced %d earlier answer%s)", n, plural(n))
+				if res.Mode == wirelog.ModeFuzzy {
+					fmt.Printf(" (replaced %d near-identical memor%s without a key: %s)", n, map[bool]string{true: "y", false: "ies"}[n == 1], strings.Join(res.Superseded, ", "))
+				} else {
+					fmt.Printf(" (replaced %d earlier answer%s: %s)", n, plural(n), strings.Join(res.Superseded, ", "))
+				}
 			}
 			fmt.Println()
 			// A correction to a memory without a key: the new statement cannot
@@ -786,7 +791,8 @@ func run(args []string) error {
 				"auto_sync": cfg.AutoSync, "push_delay_sec": cfg.PushDelaySec, "pull_interval_min": cfg.PullIntervalMin,
 				"halflife_days": rank.HalflifeDays, "frequency_boost": rank.FrequencyBoost,
 				"digest_items": rank.DigestItems, "digest_shared_weight": rank.DigestSharedWeight,
-				"embeddings": embeddings, "embed_model": model,
+				"fuzzy_supersede_threshold": rank.FuzzyThreshold,
+				"embeddings":                embeddings, "embed_model": model,
 				"host": cfg.HostName(), "path": config.Path(),
 			})
 		}
@@ -1324,6 +1330,7 @@ func loadRanking(v *vault.Vault, cfg config.Config) index.Ranking {
 	float("halflife_days", &r.HalflifeDays)
 	float("frequency_boost", &r.FrequencyBoost)
 	float("digest_shared_weight", &r.DigestSharedWeight)
+	float("fuzzy_supersede_threshold", &r.FuzzyThreshold)
 	if s, ok := vals["digest_items"]; ok {
 		if n, err := strconv.Atoi(s); err == nil {
 			r.DigestItems = n

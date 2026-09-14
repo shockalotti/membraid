@@ -23,10 +23,11 @@ import (
 
 // SharedKeys are the settings stored in the vault, with what each means.
 var SharedKeys = map[string]string{
-	"halflife_days":        "days for a write or a use to count half as much (whole number, 1 or more)",
-	"frequency_boost":      "how much repeated use lifts a memory: 0 (use only keeps it fresh) to 5, default 1",
-	"digest_items":         "how many known facts a session starts with (1 to 50)",
-	"digest_shared_weight": "weight of shared memories against this project's in the digest (above 0, up to 1)",
+	"halflife_days":             "days for a write or a use to count half as much (whole number, 1 or more)",
+	"frequency_boost":           "how much repeated use lifts a memory: 0 (use only keeps it fresh) to 5, default 1",
+	"digest_items":              "how many known facts a session starts with (1 to 50)",
+	"digest_shared_weight":      "weight of shared memories against this project's in the digest (above 0, up to 1)",
+	"fuzzy_supersede_threshold": "how alike a memory written without a key must be to an earlier one to replace it: 0.8 to 1, default 0.95 (1: the same words, ignoring case and punctuation)",
 }
 
 // IsShared reports whether key is a vault setting.
@@ -119,6 +120,12 @@ func ValidateShared(key, value string) (string, error) {
 		f, err := strconv.ParseFloat(value, 64)
 		if err != nil || f <= 0 || f > 1 {
 			return "", fmt.Errorf("digest_shared_weight takes a number above 0 and up to 1, got %q", value)
+		}
+		return strconv.FormatFloat(f, 'f', -1, 64), nil
+	case "fuzzy_supersede_threshold":
+		f, err := strconv.ParseFloat(value, 64)
+		if err != nil || f < 0.8 || f > 1 {
+			return "", fmt.Errorf("fuzzy_supersede_threshold takes a number from 0.8 to 1, got %q", value)
 		}
 		return strconv.FormatFloat(f, 'f', -1, 64), nil
 	}

@@ -6,6 +6,7 @@ import (
 	"encoding/hex"
 	"errors"
 	"fmt"
+	"math"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -202,6 +203,9 @@ type WriteResult struct {
 	ID         string
 	Scope      string
 	Superseded []string
+	// Mode is how Superseded was found: wirelog.ModeKey, wirelog.ModeFuzzy for
+	// a near-verbatim restatement without a key, or empty when nothing was.
+	Mode string
 }
 
 var ErrInvalidKind = errors.New("index: unknown kind")
@@ -266,6 +270,21 @@ func (ix *Index) Write(m Memory) (*WriteResult, error) {
 				line.Superseded = append(line.Superseded, wirelog.Superseded{ID: c.id, Key: m.Key})
 			}
 		}
+	} else {
+		// No key: only a near-verbatim restatement replaces anything. The log
+		// records what was closed, so replay never recomputes the match.
+		matches, err := ix.fuzzyMatches(m.Scope, m.Kind, m.Content, ix.Ranking().FuzzyThreshold)
+		if err != nil {
+			return nil, err
+		}
+		if len(matches) > 0 {
+			mode := wirelog.ModeFuzzy
+			line.SupersedeMode = &mode
+			for _, fm := range matches {
+				score := math.Round(fm.score*1000) / 1000
+				line.Superseded = append(line.Superseded, wirelog.Superseded{ID: fm.id, MatchScore: &score})
+			}
+		}
 	}
 
 	if ix.log != nil {
@@ -285,7 +304,11 @@ func (ix *Index) Write(m Memory) (*WriteResult, error) {
 	if err := tx.Commit(); err != nil {
 		return nil, err
 	}
-	return &WriteResult{ID: m.ID, Scope: m.Scope, Superseded: closed}, nil
+	res := &WriteResult{ID: m.ID, Scope: m.Scope, Superseded: closed}
+	if len(closed) > 0 && line.SupersedeMode != nil {
+		res.Mode = *line.SupersedeMode
+	}
+	return res, nil
 }
 
 type liveRow struct {

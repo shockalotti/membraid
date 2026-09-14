@@ -18,6 +18,7 @@ import (
 	"github.com/shockalotti/membraid/internal/index"
 	"github.com/shockalotti/membraid/internal/scope"
 	"github.com/shockalotti/membraid/internal/vault"
+	"github.com/shockalotti/membraid/internal/wirelog"
 )
 
 // MCP over stdio is newline-delimited JSON-RPC 2.0. stdout belongs to the
@@ -490,7 +491,12 @@ func (s *mcpServer) callTool(req rpcRequest) {
 			}
 		}
 		if n := len(res.Superseded); n > 0 {
-			msg += fmt.Sprintf(" This replaced %d earlier answer on the same subject.", n)
+			ids := strings.Join(res.Superseded, ", ")
+			if res.Mode == wirelog.ModeFuzzy {
+				msg += fmt.Sprintf(" It restates %d earlier memor%s in nearly the same words, which it replaced (%s). If that was wrong, write the old memory again.", n, map[bool]string{true: "y", false: "ies"}[n == 1], ids)
+			} else {
+				msg += fmt.Sprintf(" This replaced %d earlier answer%s on the same subject (%s).", n, plural(n), ids)
+			}
 		}
 		if a.Kind == index.KindTaskState {
 			msg += " Its id is " + res.ID + "; call memory_done when the task is finished."

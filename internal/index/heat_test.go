@@ -222,7 +222,8 @@ func TestDigestKeepsRoomForNewMemories(t *testing.T) {
 	var fresh []string
 	for i := 0; i < 3; i++ {
 		clock = clock.Add(time.Hour)
-		w, _ := ix.Write(Memory{Kind: KindInsight, Content: "new finding", Scope: "g1", Source: "x"})
+		// Distinct wording: the same sentence three times would be one memory.
+		w, _ := ix.Write(Memory{Kind: KindInsight, Content: "new finding " + string(rune('a'+i)), Scope: "g1", Source: "x"})
 		fresh = append(fresh, w.ID)
 	}
 	got, err := ix.Digest("g1", 12)

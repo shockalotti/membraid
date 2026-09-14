@@ -992,6 +992,21 @@ And the `memories` write response carries `superseded: [{id, key}]` so an
 adapter that disagrees can correct: write the old content again as a fresh
 current row superseding the chain, and the truth is restored.
 
+> **Implementation note (v1.18, fuzzy fallback).** Built, with the leash
+> tightened after testing on the kinds of pairs the discipline above worries
+> about. Before trigrams are taken, content is lowercased and stripped of
+> punctuation and extra spacing, so a restatement differing only in those scores
+> exactly 1. Every number must match, since one changed digit (a port, a
+> version) barely moves Dice yet changes the fact. And the default threshold is
+> **0.95**, not 0.9: "the frontend repo deploys to vercel on every push to main"
+> against the same sentence about the backend scores about 0.9, and those are
+> two facts. With normalization doing the work 0.9 was meant for, the higher
+> bar loses no true restatement. `fuzzy_supersede_threshold` is a vault setting
+> (0.8 to 1) beside the ranking settings, so every machine decides alike. The
+> write line records `supersede_mode: "fuzzy"` with each closed id and its
+> `matchScore`, and the write reply names the ids, so an agent can write the
+> old memory again if the match was wrong.
+
 **Cold deprecation:** a concept that is superseded gets `status: deprecated`
 (never edit the body); a replacement concept is proposed separately. `log.md`
 and git record both.

@@ -20,6 +20,15 @@ of the whole log, and lines naming a missing memory wait for it. Import
 rereads a file whose bytes before the saved position changed, checkpoints carry
 the project registry, and a rebuilt index keeps each day's full use counts.
 
+**The fuzzy fallback is built, tighter than specified (§6.2, §15).** Unkeyed
+memories never replaced each other, so an agent that forgot a key piled up
+copies of one fact. A memory written without a key now replaces a current
+unkeyed memory of the same scope and kind that it restates: trigram Dice after
+removing case, punctuation and spacing, every number equal, at a default of
+0.95 rather than 0.9, because at 0.9 two sentences differing in one word
+("frontend" and "backend") matched. The write reply now lists replaced ids for
+keyed and fuzzy replacement alike.
+
 ---
 
 ## v1.17.1 (notes are a view of memory)

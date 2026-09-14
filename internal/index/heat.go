@@ -28,10 +28,15 @@ type Ranking struct {
 	// DigestSharedWeight scales shared memories against a project's own in its
 	// digest.
 	DigestSharedWeight float64 `json:"digest_shared_weight"`
+	// FuzzyThreshold is how alike, by trigram Dice from 0 to 1, an unkeyed
+	// write must be to a current unkeyed memory to replace it (SPEC 6.2). It
+	// travels with the ranking settings because it is the user's, not the
+	// machine's.
+	FuzzyThreshold float64 `json:"fuzzy_supersede_threshold"`
 }
 
 func DefaultRanking() Ranking {
-	return Ranking{HalflifeDays: defaultHalflifeDays, FrequencyBoost: 1, DigestItems: 12, DigestSharedWeight: 0.7}
+	return Ranking{HalflifeDays: defaultHalflifeDays, FrequencyBoost: 1, DigestItems: 12, DigestSharedWeight: 0.7, FuzzyThreshold: 0.95}
 }
 
 // Clamped replaces any value outside its meaningful range with the default.
@@ -48,6 +53,9 @@ func (r Ranking) Clamped() Ranking {
 	}
 	if r.DigestSharedWeight <= 0 || r.DigestSharedWeight > 1 || math.IsNaN(r.DigestSharedWeight) {
 		r.DigestSharedWeight = d.DigestSharedWeight
+	}
+	if r.FuzzyThreshold < 0.8 || r.FuzzyThreshold > 1 || math.IsNaN(r.FuzzyThreshold) {
+		r.FuzzyThreshold = d.FuzzyThreshold
 	}
 	return r
 }
