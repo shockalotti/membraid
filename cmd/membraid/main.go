@@ -54,6 +54,8 @@ Usage:
   membraid install [--dry-run]           set membraid up in your agent harnesses
   membraid version [--json]              which release this is
   membraid projects [--json] | prune     every project, and forgetting empty ones
+  membraid source add FOLDER --about T   point agents at a folder of knowledge (specs, notes, docs)
+  membraid source list [--json] | remove KEY   knowledge locations, and removing one
   membraid memories [--json] [filters]   browse current memories (--scope, --kind, --source, -n)
   membraid insights [--json] [--days N]  how memory is being used
   membraid update [--check]              replace this binary with the latest release
@@ -122,6 +124,7 @@ func run(args []string) error {
 	noTrack := fs.Bool("no-track", false, "search: a person browsing, so results are not counted as used")
 	days := fs.Int("days", 7, "insights: how many days to look back")
 	list := fs.Bool("list", false, "install: list harnesses and whether membraid is set up in each, as JSON")
+	about := fs.String("about", "", "source add: what the folder holds and when to read it")
 	if err := fs.Parse(permute(fs, rest)); err != nil {
 		return err
 	}
@@ -354,6 +357,9 @@ func run(args []string) error {
 			}
 			return nil
 		})
+
+	case "source":
+		return runSource(v, cfg, fs.Args(), *about, *key, *scopeFlag, given["scope"], *jsonOut, *source)
 
 	case "projects":
 		return withIndex(v, cfg, func(ix *index.Index) error {

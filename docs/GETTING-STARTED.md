@@ -261,7 +261,9 @@ it for five tabs (`h` / `l` switch between them, `/` searches, `r` refreshes):
   its distilled note when there is one.
 - **Projects** - every project membraid knows: memories, open tasks, last write
   and which agents wrote there, and its folder on this machine. Empty projects
-  can be forgotten in one click.
+  can be forgotten in one click. Each project lists its knowledge locations,
+  with *+ Knowledge location* to add one (type the folder or *Browse*), *Open*
+  and *Remove*.
 - **Insights** - writes per day and per agent over the last week, and how much
   memory agents actually retrieve. An agent that never appears here is one whose
   setup may be broken.
@@ -407,6 +409,39 @@ settings (`halflife_days`, `frequency_boost`, `digest_items`,
 stores them in the vault, so every machine ranks alike. The widget's Settings
 tab has presets and, under *Advanced*, a live search that shows each result's
 score as you change them.
+
+## Knowledge locations
+
+membraid does not index folders of documents. It records **where** knowledge
+lives, so agents read it there with their own tools:
+
+```sh
+membraid source add ~/Work/specs/api --about "API design specs; read before changing endpoints"
+membraid source list
+membraid source remove api          # by key: source.api
+```
+
+A knowledge location is an ordinary memory with a `source.` key, a project
+value in the project you are in (or `--scope shared` for every project):
+
+```
+Knowledge location: API design specs; read before changing endpoints.
+Folder: ~/Work/specs/api (on omarchy). Read it there with your own tools when the work touches it.
+```
+
+- Agents find it in search and in the project's digest, and it ranks by use
+  like any memory.
+- The folder is stored relative to your home (`~/...`) with the machine it was
+  added on, since it may not exist on your other machines; the widget marks
+  one that is missing here.
+- Adding the same folder again replaces its entry. Removing one retires it
+  into history.
+- The widget's Projects tab adds, opens and removes them.
+
+Why not index the folders: searching documents people wrote is a different
+problem from sharing what agents learn, agents can already read files, and
+indexing arbitrary folders is the surest way for secrets to end up in memory
+([V1-SCOPE](V1-SCOPE.md)).
 
 ## What an agent actually sees
 

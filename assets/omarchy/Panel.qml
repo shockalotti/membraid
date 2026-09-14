@@ -66,6 +66,10 @@ Panel {
 
   // Settings tab: ranking tuning
   property bool tuningOpen: false
+
+  // Projects tab: knowledge locations
+  property var sources: []
+  property string addingSourceScope: ""
   property var preview: []
 
   readonly property var doing: status.doing || []
@@ -137,6 +141,7 @@ Panel {
     root.nowMs = Date.now()
     refreshStatus()
     load(projectsProcess)
+    if (root.tab === "projects") load(sourcesProcess)
     if (root.tab === "memories") loadMemories()
     else if (root.tab === "insights") load(insightsProcess)
     else if (root.tab === "settings") { load(configProcess); load(harnessProcess); checkUpdates(false); loadPreview() }
@@ -195,6 +200,28 @@ Panel {
     if (previewProcess.running) { previewProcess.again = true; return }
     previewProcess.command = [root.binary, "search", q, "--json", "--no-track", "--scope", "*", "-n", "6"]
     previewProcess.running = true
+  }
+
+  function sourcesFor(scope) {
+    return root.sources.filter(function(s) { return s.scope === scope })
+  }
+
+  function startAddingSource(scope) {
+    root.addingSourceScope = scope
+    root.confirmForgetId = ""
+    flick.contentY = 0
+    Qt.callLater(function() { sourceFolderField.forceActiveFocus() })
+  }
+
+  function saveSource() {
+    var folder = sourceFolderField.text.trim()
+    var about = sourceAboutField.text.trim()
+    if (folder === "" || about === "") return
+    root.runAction(["source", "add", folder, "--about", about, "--scope", root.addingSourceScope, "--source", "user"])
+    sourceFolderField.text = ""
+    sourceAboutField.text = ""
+    root.addingSourceScope = ""
+    keyCatcher.forceActiveFocus()
   }
 
   function selectTab(id) {
@@ -315,6 +342,29 @@ Panel {
     stdout: StdioCollector {
       waitForEnd: true
       onStreamFinished: { try { root.updateInfo = JSON.parse(text) } catch (e) {} }
+    }
+  }
+
+  Process {
+    id: sourcesProcess
+    command: [root.binary, "source", "list", "--json"]
+    stdout: StdioCollector {
+      waitForEnd: true
+      onStreamFinished: { try { root.sources = JSON.parse(text) || [] } catch (e) {} }
+    }
+  }
+
+  // The desktop's folder chooser. The panel may close while it has focus; the
+  // folder is still filled in when the panel is opened again.
+  Process {
+    id: browseProcess
+    command: ["bash", "-lc", "omarchy-file-select --directory --title 'Knowledge location'"]
+    stdout: StdioCollector {
+      waitForEnd: true
+      onStreamFinished: {
+        var picked = text.trim().split("\n")[0]
+        if (picked !== "") sourceFolderField.text = picked
+      }
     }
   }
 
@@ -795,6 +845,55 @@ Panel {
             width: parent.width
             spacing: Style.space(8)
 
+            // Adding a knowledge location: a memory pointing agents at a
+            // folder they should read. membraid never reads the folder.
+            Column {
+              visible: root.addingSourceScope !== ""
+              width: parent.width
+              spacing: Style.space(6)
+              Body {
+                width: parent.width
+                font.bold: true
+                text: "New knowledge location for " + (root.addingSourceScope === "shared" ? "every project" : root.projectName(root.addingSourceScope))
+              }
+              Row {
+                width: parent.width
+                spacing: Style.spacing.lg
+                TextField {
+                  id: sourceFolderField
+                  width: parent.width - browseLink.width - parent.spacing
+                  placeholderText: "Folder, e.g. ~/Work/specs/api"
+                  foreground: root.foreground
+                  Keys.onEscapePressed: { root.addingSourceScope = ""; keyCatcher.forceActiveFocus() }
+                  onAccepted: sourceAboutField.forceActiveFocus()
+                }
+                Link {
+                  id: browseLink
+                  anchors.verticalCenter: sourceFolderField.verticalCenter
+                  text: browseProcess.running ? "Choosing..." : "Browse"
+                  onActivated: if (!browseProcess.running) browseProcess.running = true
+                }
+              }
+              TextField {
+                id: sourceAboutField
+                width: parent.width
+                placeholderText: "What it holds and when to read it, e.g. API specs; read before changing endpoints"
+                foreground: root.foreground
+                Keys.onEscapePressed: { root.addingSourceScope = ""; keyCatcher.forceActiveFocus() }
+                onAccepted: root.saveSource()
+              }
+              Caption {
+                width: parent.width
+                text: "Agents see this in search and in the digest, and open the folder with their own tools. membraid does not read the files."
+              }
+              Row {
+                spacing: Style.space(16)
+                Link { text: "Save"; font.pixelSize: Style.font.body; onActivated: root.saveSource() }
+                Link { text: "Cancel"; font.pixelSize: Style.font.body; onActivated: { root.addingSourceScope = ""; keyCatcher.forceActiveFocus() } }
+              }
+              PanelSeparator { width: parent.width }
+            }
+
             Repeater {
               model: root.projects
               Column {
@@ -825,6 +924,43 @@ Panel {
                     visible: !!parent.parent.p.path && !parent.parent.p.missing
                     text: "Open folder"
                     onActivated: root.openPath(parent.parent.p.path)
+                  }
+                  Link {
+                    text: "+ Knowledge location"
+                    onActivated: root.startAddingSource(parent.parent.p.scope)
+                  }
+                }
+                Repeater {
+                  model: root.sourcesFor(parent.p.scope)
+                  Column {
+                    id: srcItem
+                    width: column.width
+                    spacing: Style.space(1)
+                    leftPadding: Style.space(12)
+                    readonly property var s: modelData
+                    Body { width: parent.width - parent.leftPadding; text: srcItem.s.about }
+                    Caption {
+                      width: parent.width - parent.leftPadding
+                      color: srcItem.s.exists ? root.dim : root.urgent
+                      text: srcItem.s.folder + (srcItem.s.exists ? "" : "  (not on this machine; added on " + srcItem.s.host + ")")
+                    }
+                    Row {
+                      spacing: Style.space(14)
+                      Link { visible: srcItem.s.exists; text: "Open"; onActivated: root.openPath(srcItem.s.folder.replace(/^~/, root.home)) }
+                      Link {
+                        visible: root.confirmForgetId !== srcItem.s.id
+                        text: "Remove"
+                        danger: true
+                        onActivated: root.confirmForgetId = srcItem.s.id
+                      }
+                      Link {
+                        visible: root.confirmForgetId === srcItem.s.id
+                        text: "Remove everywhere"
+                        danger: true
+                        onActivated: { root.confirmForgetId = ""; root.runAction(["source", "remove", srcItem.s.key, "--scope", srcItem.s.scope]) }
+                      }
+                      Link { visible: root.confirmForgetId === srcItem.s.id; text: "Keep"; onActivated: root.confirmForgetId = "" }
+                    }
                   }
                 }
               }

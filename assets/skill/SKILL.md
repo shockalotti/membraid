@@ -28,7 +28,7 @@ knowing this?** If not, do not write it.
 | A concrete project value you had to discover: deploy target, required Node version | Your plan for the next five minutes |
 | A non-obvious cause that cost time: "build fails when the lockfile is stale" | Chatter, greetings, restating the question |
 | Work left unfinished at the end of a session | Secrets, tokens, passwords, keys, personal data |
-| Where knowledge lives outside this project: "the API specs are in `~/Work/specs/api`; read them before changing endpoints" | The documents' contents: point to them, and read them with your own tools |
+| Where knowledge lives outside this project: `membraid source add ~/Work/specs/api --about "API specs; read before changing endpoints"` (a "Knowledge location" memory, key `source.*`) | The documents' contents: point to them, and read them with your own tools |
 | A standing preference that applies everywhere | Large pastes: logs, stack traces, code blocks |
 
 Memory syncs to a git remote. **Never store credentials of any kind**, even
