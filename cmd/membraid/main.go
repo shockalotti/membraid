@@ -54,6 +54,7 @@ Usage:
   membraid install [--dry-run]           set membraid up in your agent harnesses
   membraid version [--json]              which release this is
   membraid reindex                       rebuild the index from the wire log (the old one is kept)
+  membraid repair [--dry-run]            put back log lines this index holds but the log lost (before v0.5.3)
   membraid projects [--json] | prune     every project, and forgetting empty ones
   membraid source add FOLDER|REPO|URL --about T [--login]   point agents at knowledge: a folder, git repo or web page
   membraid source list [--json] | remove KEY   knowledge locations, and removing one
@@ -436,6 +437,43 @@ func run(args []string) error {
 					note = "  (folder missing)"
 				}
 				fmt.Printf("%-12s %-20s %4d memories %3d open  %-10s %s%s\n", p.Scope, p.Name, p.Memories, p.OpenTasks, day(p.LastWrite), p.Path, note)
+			}
+			return nil
+		})
+
+	case "repair":
+		return withIndex(v, cfg, func(ix *index.Index) error {
+			r, err := ix.Repair(*dryRun)
+			if err != nil {
+				return err
+			}
+			if *jsonOut {
+				return json.NewEncoder(os.Stdout).Encode(r)
+			}
+			if len(r.Writes) == 0 && len(r.Closes) == 0 {
+				fmt.Println("the wire log has everything this index holds")
+				return nil
+			}
+			verb := "restored"
+			if !r.Applied {
+				verb = "would restore"
+			}
+			fmt.Printf("%s %d memor%s and %d close%s this index holds but the wire log lost:\n",
+				verb, len(r.Writes), map[bool]string{true: "y", false: "ies"}[len(r.Writes) == 1], len(r.Closes), plural(len(r.Closes)))
+			for _, h := range r.Writes {
+				content := strings.Join(strings.Fields(h.Content), " ")
+				if len(content) > 80 {
+					content = content[:77] + "..."
+				}
+				fmt.Printf("  %s  %-14s %-28s %s\n", day(h.At), h.Kind, dash(h.Key), content)
+			}
+			for _, id := range r.Closes {
+				fmt.Printf("  closed %s\n", id)
+			}
+			if r.Applied {
+				fmt.Println("other machines get them with the next sync (membraid sync)")
+			} else {
+				fmt.Println("run membraid repair to write them")
 			}
 			return nil
 		})

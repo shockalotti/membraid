@@ -255,7 +255,7 @@ func NewHeader(t string, at time.Time) Header {
 
 func (l *Log) rotateLocked(now time.Time) error {
 	want := l.monthFile(now)
-	if l.f != nil && l.name == want {
+	if l.f != nil && l.name == want && l.stillAtPath() {
 		return nil
 	}
 	if l.f != nil {
@@ -269,6 +269,26 @@ func (l *Log) rotateLocked(now time.Time) error {
 	}
 	l.f, l.name = f, want
 	return nil
+}
+
+// stillAtPath reports whether the open file is still the file at its path.
+//
+// Sync rebases the vault, and git replaces a file it checks out with a new one
+// rather than rewriting it in place. A process that kept the old file open, as
+// every MCP server does for a whole session, then appended to a file that no
+// longer had a name: each write reached the index and was never committed, so
+// no other machine and no rebuild ever saw it. One stat per append is the
+// price of never writing into a deleted file.
+func (l *Log) stillAtPath() bool {
+	open, err := l.f.Stat()
+	if err != nil {
+		return false
+	}
+	named, err := os.Stat(filepath.Join(l.dir, l.name))
+	if err != nil {
+		return false
+	}
+	return os.SameFile(open, named)
 }
 
 // endsMidLine reports whether a non-empty file lacks a final newline.

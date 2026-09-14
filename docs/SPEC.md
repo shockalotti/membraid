@@ -481,6 +481,13 @@ So each line records the derived outcome, not just the input. Three line types:
 >   including in a rebuild, where a machine with a slow clock can stamp a close
 >   before the write it closes.
 >
+> **A log file can be replaced under a writer.** Git replaces files it checks
+> out, and sync rebases. A writer must check before each append that the file
+> it holds is still the one at its path, and reopen it if not; otherwise a
+> long-running server's lines go to a deleted file and the log stops being a
+> superset of the index. `membraid repair` restores lines lost that way from
+> the index that still holds them.
+>
 > Import also fingerprints the bytes before each saved position, so a hand edit
 > that shortens an earlier line makes it reread the file instead of resuming
 > mid-line. Checkpoint lines gain an optional `scopes` array (project id, name,

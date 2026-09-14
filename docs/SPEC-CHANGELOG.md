@@ -10,6 +10,22 @@ next agent in the loop.
 
 ## v1.18 (closing the open items from the spec review)
 
+**Writes were lost when a sync replaced the log file (§3.3).** Found while
+checking this release against a copy of a real vault: two current memories in
+one machine's index had no write line in any log or any commit. A log kept its
+file open for the whole process, and sync's rebase checks out the remote branch,
+which replaces the machine's log file with a new one. Every MCP server running
+across that pull went on appending to the old, unnamed file, so its writes and
+closes reached the local index and nothing else: never committed, never on
+another machine, gone from any rebuild, which broke the log-before-index
+guarantee. The log now reopens the file whenever the one at its path is not the
+one it holds. `membraid repair` rebuilds a scratch index from the log, compares
+it with this machine's index, and appends the missing write and close lines with
+their original times, so a vault that lost lines gets them back. Every replay
+does the same before it empties the index, including the one-time replay when
+an index upgrades to schema 5, which would otherwise have deleted the only copy
+of every lost write.
+
 **Import order no longer changes the result (§3.3, §5.3).** The review found
 that incremental import could leave one machine's index different from
 another's and from a rebuild: a rescope applied whenever it arrived moved

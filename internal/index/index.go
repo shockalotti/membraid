@@ -586,9 +586,18 @@ func (ix *Index) ImportAll() (int, error) {
 // rolls the whole import back, so no position ever moves past a line that was
 // not applied.
 func (ix *Index) ImportLog(files []string) (int, error) {
+	return ix.importLog(files, false)
+}
+
+// importLog is ImportLog. relogged is set once lines only this index held have
+// been put back in the log, which every replay does first.
+func (ix *Index) importLog(files []string, relogged bool) (int, error) {
 	replay := ix.metaGet(metaReplay) != ""
 	if !replay && !ix.logGrew(files) {
 		return 0, nil
+	}
+	if replay && !relogged {
+		return ix.relogThenImport(files)
 	}
 	tx, err := ix.db.Begin()
 	if err != nil {
@@ -597,7 +606,7 @@ func (ix *Index) ImportLog(files []string) (int, error) {
 	defer tx.Rollback()
 
 	if replay {
-		if files, err = everyLogFile(files); err != nil {
+		if files, err = ix.replayFiles(files); err != nil {
 			return 0, err
 		}
 	}
@@ -609,10 +618,14 @@ func (ix *Index) ImportLog(files []string) (int, error) {
 		if replay, err = needsReplay(tx, entries); err != nil {
 			return 0, err
 		}
+		if replay && !relogged {
+			tx.Rollback()
+			return ix.relogThenImport(files)
+		}
 		if replay {
 			// A replay rebuilds from the whole log, not only the files that
 			// brought the trigger.
-			if files, err = everyLogFile(files); err != nil {
+			if files, err = ix.replayFiles(files); err != nil {
 				return 0, err
 			}
 			if entries, positions, err = readLog(tx, files, true); err != nil {

@@ -140,6 +140,35 @@ func readLog(tx *sql.Tx, files []string, fromStart bool) ([]logEntry, map[string
 	return entries, positions, nil
 }
 
+// relogThenImport puts back in the log any line only this index holds, then
+// imports. A replay empties the index and rebuilds it from the log, so a write
+// whose line was lost (see Repair) would otherwise lose its last copy.
+func (ix *Index) relogThenImport(files []string) (int, error) {
+	if ix.log != nil {
+		_, lines, err := ix.missingLines()
+		if err != nil {
+			return 0, err
+		}
+		if err := ix.appendLines(lines); err != nil {
+			return 0, err
+		}
+	}
+	return ix.importLog(files, true)
+}
+
+// replayFiles is every log file a replay reads: this machine's log directory,
+// and the directories of files.
+func (ix *Index) replayFiles(files []string) ([]string, error) {
+	if ix.log != nil {
+		own, err := ix.log.Files()
+		if err != nil {
+			return nil, err
+		}
+		files = append(append([]string{}, own...), files...)
+	}
+	return everyLogFile(files)
+}
+
 // everyLogFile is every log file in the directories of files: a replay reads
 // all of them, whichever ones this import was given.
 func everyLogFile(files []string) ([]string, error) {
