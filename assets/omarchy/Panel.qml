@@ -1235,8 +1235,8 @@ Panel {
                     visible: !!modelData.why
                     width: parent.width
                     text: modelData.why
-                          ? "score " + modelData.why.score.toFixed(3) + " = relevance " + modelData.why.relevance.toFixed(3)
-                            + " x use " + Number(modelData.why.use_factor || 1).toFixed(2) + "   (boost " + modelData.why.boost.toFixed(2) + ", " + modelData.why.writes + " write"
+                          ? "score " + modelData.why.score.toFixed(3) + " = match " + (modelData.why.score / (modelData.why.use_factor || 1)).toFixed(2)
+                            + " of the best x use " + Number(modelData.why.use_factor || 1).toFixed(2) + "   (boost " + modelData.why.boost.toFixed(2) + ", " + modelData.why.writes + " write"
                             + (modelData.why.writes === 1 ? "" : "s") + ", " + modelData.why.uses.toFixed(1) + " uses"
                             + (modelData.why.last_used ? ", last " + root.ago(modelData.why.last_used) : "") + ")"
                           : ""

@@ -298,8 +298,14 @@ func run(args []string) error {
 					if last == "" {
 						last = "never"
 					}
-					fmt.Printf("    score %.3f = relevance %.3f (relative to the best match) x use %.2f   (boost %.2f from heat %.2f: %d write%s and %.1f uses, last %s)\n",
-						h.Why.Score, h.Why.Relevance, h.Why.UseFactor, h.Why.Boost, h.Why.Heat, h.Why.Writes, plural(h.Why.Writes), h.Why.Uses, last)
+					// match is this result's relevance as a fraction of the best result's,
+					// which is what the score multiplies; the raw relevance is shown too.
+					match := 0.0
+					if h.Why.UseFactor > 0 {
+						match = h.Why.Score / h.Why.UseFactor
+					}
+					fmt.Printf("    score %.3f = match %.2f of the best x use %.2f   (relevance %.3f, boost %.2f from heat %.2f: %d write%s and %.1f uses, last %s)\n",
+						h.Why.Score, match, h.Why.UseFactor, h.Why.Relevance, h.Why.Boost, h.Why.Heat, h.Why.Writes, plural(h.Why.Writes), h.Why.Uses, last)
 				}
 			}
 			return nil
