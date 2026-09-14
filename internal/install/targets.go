@@ -354,7 +354,7 @@ func embeddings() Target {
 		ID: "embeddings", Name: "Semantic search (embeddings)",
 		Detect: func(*Env) bool { return false },
 		Notes: []string{
-			"Embeddings are computed on this machine and stored only in its local index, never in the synced vault. Nothing is sent to any cloud service.",
+			"Embeddings are computed on this machine, by Ollama or by the built-in model (downloaded once from Hugging Face), and kept only in the local index, never in the synced vault. No memory text leaves the machine unless OLLAMA_HOST points at another one.",
 		},
 		Steps: func(e *Env) []Step {
 			embed := func(desc string) Step {

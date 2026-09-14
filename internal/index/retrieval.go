@@ -146,7 +146,7 @@ func (ix *Index) rankByUse(cands []Hit, relevance []float64, limit int) ([]Hit, 
 // while one machine wrote the log. With one log per machine, a snapshot from
 // one machine replacing another's would erase the other's retrievals, so
 // replay keeps the newest time per row instead. The line format is unchanged.
-// Concept entries are ignored until concepts exist.
+// Concept entries are ignored: the concept mirror is not filled (V1-SCOPE).
 func applyCheckpoint(tx *sql.Tx, c wirelog.CheckpointLine) error {
 	for _, r := range c.Rows {
 		var cur sql.NullString

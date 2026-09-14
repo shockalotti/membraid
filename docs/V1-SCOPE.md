@@ -50,7 +50,7 @@ That is not a concession, it is the product:
 | Keyed supersession - a newer fact retires the older one | no | **yes** |
 | Ranking by use - what agents rely on rises, what nobody uses sinks | no | **yes** |
 | Distillation - a subject seen repeatedly becomes one concept | no | **yes** |
-| Sweep - stale material archives itself, store stays bounded | no | **yes** |
+| Sweep - stale material archives itself, store stays bounded | no | **partly**: sweep counts memories unused for 90 days and flags stale tasks; nothing is archived yet, because archival acts on concept notes, which never reach the index (see the concept-mirror loose end) |
 | Files you can read, grep, diff and delete | no | **yes** |
 | Promotion of `draft` to `stable` | **yes** | supported, never required |
 
@@ -85,7 +85,7 @@ next starts; the goal is the **usable** line below, not the bottom of the table.
 |---|---|---|---|
 | 1 | Wire log | §3.4, §5.3 | **done** - the only non-rebuildable artifact, so it is built and tested first |
 | 2 | Vault: markdown, frontmatter, `init` | §4 | **done** as a layout: `init`, `index.md`, `log.md`, and a concept-file writer. Memories themselves live in the append-only log in `.hot/`; nothing writes a concept file until distillation (slice 9), so readable per-subject files do not exist yet |
-| 3 | Hot index: tables + FTS5 | §5.1, §5.2 | **done** - search is what makes one brain feel like one brain |
+| 3 | Hot index: tables + FTS5 | §5.1, §5.2 | **done for §5.1** - search is what makes one brain feel like one brain. The §5.2 concept mirror has its tables but is never filled: distilled or edited notes do not reach search (loose end) |
 | 4 | **Keyed supersession** | §6.2, §6.3 | **done** - without it the shared brain holds five contradictory opinions |
 | 5 | CLI: `write`, `search`, `get` | §10 | **done** - the universal adapter; anything that can shell out is connected |
 | 6 | stdio MCP server | §10 | **done** - now six tools: write, search, get, used, done, forget |
@@ -141,7 +141,12 @@ and a crash fragment in the log made every later write from that machine
 unimportable (SPEC §5.3, amended in v1.14.2). It runs in CI.
 
 Local only: each machine works on its own clone, and git is the only thing that
-crosses the network.
+carries memory across the network. Three things besides git do use it: the
+widget checks GitHub for a newer release when its Settings tab opens (at most
+hourly), the built-in embedding model downloads once from Hugging Face, and an
+`OLLAMA_HOST` pointing at another machine sends memory text there to be
+embedded. None is telemetry, and none sends memory text anywhere unless
+`OLLAMA_HOST` is set that way.
 
 ## Deliberately deferred
 

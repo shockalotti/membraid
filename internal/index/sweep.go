@@ -11,7 +11,8 @@ import (
 // records the retrieval state, and leaves a report where a human will see it.
 //
 // SPEC §9 also archives concept files, expired drafts and deprecated concepts.
-// Concepts do not exist yet, so those parts wait for distillation.
+// Archiving concept notes waits: distillation writes notes, but they never
+// reach the index, so sweep has nothing to archive them by (V1-SCOPE).
 
 const (
 	// SweepUnusedDays is how long a memory can go unwritten and unretrieved

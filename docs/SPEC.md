@@ -52,6 +52,12 @@ reads as though curation is required is describing the 2% case.
 1. **The engine is not owned by any agent framework.** It is a standalone
    service. Claude Code, OpenCode, Codex, Grok, and (later) DSH are consumers
    that connect to it. Nothing in the engine names any of them.
+   *(v1.17: the engine core - index, wire log, vault, retrieval - still names
+   none. The binary also ships the adapters: `membraid install` writes each
+   harness's config, `context --format` has claude, copilot and cursor payloads,
+   and `mcp --digest` carries the digest in server instructions for harnesses
+   with no other way in. They live at the edge, in `cmd/membraid` and
+   `internal/install`, so one `go install` delivers everything; see V1-SCOPE.)*
 2. **Maintainability beats correctness.** Every field, tool, and lifecycle
    rule must survive the question: "will I still maintain this in six months,
    at 2am, when something misbehaves?" If the answer is no, it is debt.
@@ -75,7 +81,11 @@ reads as though curation is required is describing the 2% case.
 7. **Zero heavy machinery.** No attestation subsystem, no conformance checker,
    no schema registry, no source-credibility scoring. If you can `cat` a file,
    you can read the vault; if you can `git clone` a repo, you can ship it.
-8. **One writer.** The engine is a single long-running process. Everything else
+8. **One writer.** *(v1.17: v1 has no daemon. Several processes - each
+   harness's MCP server, the CLI, the timer - write one vault at once, held
+   together by SQLite's write lock, one wire-log file per machine and a lock
+   around git sync, and tested under load; see V1-SCOPE, "Concurrency is real".)*
+   The engine is a single long-running process. Everything else
    is a client.
 
 ---
@@ -97,7 +107,8 @@ reads as though curation is required is describing the 2% case.
 - Vector search (keyword FTS5 first; vectors are a later milestone).
 - Attested computations, source-credibility scoring, conformance tooling.
 - Any agent-specific integration baked into the engine (adapters are thin and
-  separate). **Context injection into a client's turn is adapter work**, not
+  separate). *(v1.17: the adapters ship in the same binary; see principle 1.)*
+  **Context injection into a client's turn is adapter work**, not
   engine work: MCP has no "pre-step hook", so adapters (e.g. a Claude Code
   `UserPromptSubmit` hook, an opencode hook) call `memory_search` and splice
   the result into the prompt. The engine only exposes search.
@@ -1006,9 +1017,15 @@ and splices the result in with provenance:
 > retrieval is replaced by *use heat*. A subject (a keyed memory's scope, kind
 > and key, or an unkeyed memory's id) collects 1 for every write, history
 > included, and 1 for every reported use: `memory_used`, which an agent calls
-> when a memory changed what it did, or a `memory_get` of exactly that subject.
+> when a memory changed what it did (v1.16 also counted a `memory_get` of the
+> subject; v1.17 stopped, since checking a fact is not relying on it).
 > Each contribution halves every `halflife_days`. `boost = heat` up to one use,
-> then `1 + frequency_boost x ln(heat)`; search ranks by `relevance x boost`,
+> then `1 + frequency_boost x ln(heat)`; search ranks by `relevance x boost`
+> (v1.17: relevance relative to the best match, times a use factor of
+> `1 + 0.15 x ln(boost)` kept within 0.6 to 1.3, so use tips close calls but
+> cannot overturn a clearly better match; the digest caps boost at 2 and keeps
+> three places for the newest memories; a `scope: "*"` search records no
+> retrieval),
 > the digest by `kind x scope x boost`. Appearing in search results or the
 > digest is not use: it still records `last_retrieved`, which sweep and the
 > never-retrieved count read, but it no longer changes rank. Heat is kept per
@@ -1606,5 +1623,6 @@ writes carry their own `source`.
   wikilinks, and markdown references. Enough for a personal vault; add real
   graph traversal only if searching it fails.
 - Not a collaboration platform. Single human curator, multiple agent writers.
-- Not an injection framework. It stores and retrieves; adapters inject into
+- Not an injection framework *(the adapters that do inject ship in the same
+  binary; principle 1)*. It stores and retrieves; adapters inject into
   agent turns.

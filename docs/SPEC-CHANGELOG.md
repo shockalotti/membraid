@@ -8,6 +8,67 @@ next agent in the loop.
 
 ---
 
+## v1.17 (implementation amendments from the spec review)
+
+A review of every section against the code found places where the build broke
+the spec's own reasoning. Fixed:
+
+**Sync no longer lets two machines block each other (§4.5, §3.3).** Every
+machine inserts log.md entries under its header, and distillation writes notes
+at paths derived from keys, so any two changes to either between syncs
+conflicted, and the second machine's sync failed on every run after. The
+rebase now settles conflicts on the files membraid itself maintains: log.md
+keeps both machines' entries, and a note still an untouched distilled draft
+(status `draft`, with the distillation footer) on both sides takes the
+remote's version, for the next distill pass to rewrite. Any other conflict,
+including a note a person edited, still aborts cleanly for a human.
+
+**`memory_get` reads the effective scopes (§7.2, §17).** It matched the exact
+scope only, so a standing preference in `shared` was invisible from every
+project. It now returns the current answer from the project and from
+`shared`, each labelled.
+
+**Unresolved writes go to `unscoped`, never `shared` (§17 step 5).** A write
+with no resolvable project fell back to `shared`, the one bucket every project
+reads, which is exactly the pollution §17 forbids. It now lands in `unscoped`,
+which no read includes by default, which cannot be requested by parameter or
+`MEMBRAID_SCOPE`, and whose size `status`, the sweep report and the widget
+show. Reads with no project still read `shared`. Not built: `memory_stats`.
+
+**Schema version skew is guarded (§5.3).** Any version mismatch ran the
+additive schema and stamped the binary's own version, so an older binary
+silently downgraded a newer index. An index from a newer membraid is now
+refused; schemas from 3 up upgrade in place (every change since only adds
+tables); anything older is set aside and rebuilt from the log. `membraid
+reindex` does the same on demand, keeping the old index as a `.bak`.
+
+**Checkpoints carry changes only (§3.4).** Each checkpoint restated every row
+ever retrieved and every heat subject into a log that is never pruned, so its
+size grew with the store. It now carries what changed since this index's last
+checkpoint; replay already keeps the newest value per row and per machine, so
+the result is identical.
+
+**Ranking cannot reinforce itself (§7.2).** v1.16 promised use could not beat a
+clearly more relevant match, but cosine relevance sits in a narrow band, so a
+large boost did. Search now scores relevance relative to the best match times a
+bounded use factor (0.6 to 1.3). The digest, which agents follow and so feed
+with use, caps boost at 2 and keeps three places for the newest memories. A
+`memory_get` is a retrieval, no longer a use, and a `scope: "*"` search records
+no retrieval, restoring §7.2's rule that popular rows must not refresh
+themselves.
+
+**The principles now say what was decided (§1, §2, §18).** The adapters ship
+in the binary, and v1 has several writer processes rather than one; both were
+recorded in V1-SCOPE but contradicted by unrewritten principles. V1-SCOPE no
+longer claims the store archives itself, that §5.2 is done, or that git is the
+only thing that uses the network.
+
+**Still open, awaiting a decision:** the concept mirror (§5.2, §7.3). Notes are
+written but never read back into search, so editing, promoting or deleting a
+note changes nothing agents see, and notes stop updating on a second machine.
+
+---
+
 ## v1.16 (ranking by use, and ranking settings that follow the user)
 
 **Use, not appearance, is the ranking signal (§7.2).** Rank used to decay from

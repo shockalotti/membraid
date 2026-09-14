@@ -372,21 +372,21 @@ history with the agent that wrote it.
 
 ## How memories are ranked
 
-Search ranks by **relevance x boost**, and the digest by **kind x scope x
-boost**, where boost comes from *heat*:
+Search ranks by **relevance, adjusted by use**, and the digest by **kind x
+scope x boost**, where boost comes from *heat*:
 
 ```mermaid
 flowchart LR
     W["A write to the memory<br/>(restating its key counts)"] -->|"+1"| H
-    U["An agent calls memory_used,<br/>or memory_get on exactly it"] -->|"+1"| H
+    U["An agent calls memory_used"] -->|"+1"| H
     S["It shows up in search results<br/>or in the digest"] -.->|"not counted"| N["no change"]
     H["Heat<br/>every +1 halves each halflife_days"] --> C{"heat above 1?"}
     C -->|"no"| B1["boost = heat"]
     C -->|"yes"| B2["boost = 1 + frequency_boost x ln(heat)"]
     Q["Relevance to the query<br/>(keywords, or meaning)"] --> R
-    B1 --> R["Search score = relevance x boost"]
+    B1 --> R["Search score = relevance / best match<br/>x use factor 1 + 0.15 x ln(boost), within 0.6 to 1.3"]
     B2 --> R
-    B1 --> D["Digest score = kind x scope x boost"]
+    B1 --> D["Digest score = kind x scope x boost (at most 2),<br/>plus 3 places kept for the newest memories"]
     B2 --> D
 ```
 
@@ -394,7 +394,7 @@ flowchart LR
   each halving every `halflife_days` (30). A keyed memory's heat belongs to its
   key, so restating it keeps its history.
 - **A use** is an agent calling `memory_used` because the memory changed what it
-  did, or asking for exactly that memory with `memory_get`. Showing up in
+  did. Looking a memory up with `memory_get` is a retrieval, not a use. Showing up in
   results or the digest is not use: otherwise whatever surfaces most would keep
   itself on top.
 - **Boost** is the heat up to one use, then grows slowly, so a memory relied on
@@ -517,9 +517,11 @@ five for 47% of questions with keyword search, 96% with EmbeddingGemma, and 91%
 with the model built into membraid. The full measurements and why this design
 won are in [SEARCH-EVALUATION.md](SEARCH-EVALUATION.md).
 
-**It stays on your machine.** Each machine computes its own embeddings with a
-local model and keeps them in its local index. They are never written to the
-synced vault, and nothing is sent to any cloud service.
+**Memory text stays on your machine.** Each machine computes its own embeddings
+with a local model and keeps them in its own index, never in the synced vault.
+Two things do reach the network: the built-in model downloads once from Hugging
+Face, and if `OLLAMA_HOST` points at another machine, memory text goes there to
+be embedded. Otherwise nothing leaves.
 
 **Turn it on** by picking *Semantic search* in `membraid install`, or by hand:
 
