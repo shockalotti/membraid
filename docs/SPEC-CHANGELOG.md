@@ -29,6 +29,13 @@ removing case, punctuation and spacing, every number equal, at a default of
 ("frontend" and "backend") matched. The write reply now lists replaced ids for
 keyed and fuzzy replacement alike.
 
+**Key drift is visible (§6.3).** Nothing listed the keys in use, so two agents
+writing `theme` and `editor.theme` held two answers to one question unseen.
+`membraid keys` lists the vocabulary with counts and pairs keys that look like
+one subject, the Insights tab shows the pairs, and a write that starts a new key
+resembling a live one says so in its reply. This replaces the spec's
+`memory_stats` tool, to keep the agent tool list short.
+
 ---
 
 ## v1.17.1 (notes are a view of memory)

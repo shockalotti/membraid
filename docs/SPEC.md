@@ -1042,6 +1042,25 @@ the pre-key world while looking like it works.
 There is no key registry and no schema constraint on key spelling. Principle 7:
 the cure for drift is visibility, not machinery.
 
+> **Implementation note (v1.18, key vocabulary).** `memory_stats` is not an
+> agent tool: every tool description costs every session context, and an agent
+> needs drift pointed out at the moment it writes, not a table to study. Three
+> surfaces instead:
+>
+> - **At write time.** A write that starts a key not yet in use in its scope
+>   and kind (or in `shared`, for a project write) is told which live keys look
+>   like the same subject, and how to fold it into one of them.
+> - **`membraid keys [--scope S] [--json]`** lists every key per scope and kind
+>   with its current and total rows, followed by pairs that look like one
+>   subject.
+> - **The widget's Insights tab** shows those pairs across every project.
+>
+> Keys look like one subject when they hold the same words in another order or
+> run together (`theme.editor`, `editortheme`), when one is the end of the other
+> (`theme`, `editor.theme`), or when their spelling is nearly the same
+> (`editor.themes`), by trigram Dice of 0.8 or more. `db.port` and `redis.port`
+> do not pair.
+
 ---
 
 ## 7. Retrieval

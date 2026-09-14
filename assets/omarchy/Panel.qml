@@ -1116,6 +1116,22 @@ Panel {
                 text: "- " + modelData.content + "  (" + root.ago(modelData.at) + ")"
               }
             }
+
+            PanelSectionHeader {
+              visible: (root.insights.key_drift || []).length > 0
+              text: "Keys that may be one subject"
+              foreground: root.foreground
+              fontFamily: root.fontFamily
+            }
+            Caption {
+              visible: (root.insights.key_drift || []).length > 0
+              width: parent.width
+              text: "Agents used different keys for what looks like one thing, so each keeps its own answer. Correct the memory under the key to keep, then forget the other."
+            }
+            Repeater {
+              model: root.insights.key_drift || []
+              Body { width: column.width; text: modelData.a + "  ~  " + modelData.b + "   (" + (modelData.scope_name || modelData.scope) + ")" }
+            }
           }
 
           // ================= Settings =================

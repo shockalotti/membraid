@@ -59,6 +59,7 @@ Usage:
   membraid source list [--json] | remove KEY   knowledge locations, and removing one
   membraid memories [--json] [filters]   browse current memories (--scope, --kind, --source, -n)
   membraid insights [--json] [--days N]  how memory is being used
+  membraid keys [--scope S] [--json]     the keys agents use, and ones that look like one subject
   membraid update [--check]              replace this binary with the latest release
 
 Write flags:
@@ -193,6 +194,7 @@ func run(args []string) error {
 			if err != nil {
 				return err
 			}
+			similar, _ := ix.SimilarKeys(writeScope, *kind, *key)
 			res, err := ix.Write(index.Memory{
 				Kind: *kind, Key: *key, Content: strings.Join(fs.Args(), " "),
 				Scope: writeScope, Source: *source,
@@ -212,6 +214,9 @@ func run(args []string) error {
 				}
 			}
 			fmt.Println()
+			if note := similarKeyNote(*key, similar); note != "" {
+				fmt.Fprintln(os.Stderr, "membraid: "+note)
+			}
 			// A correction to a memory without a key: the new statement cannot
 			// supersede the old one by key, so the old one is retired by id. One
 			// already superseded above has nothing left to retire.
@@ -432,6 +437,55 @@ func run(args []string) error {
 			return nil
 		})
 
+	case "keys":
+		return withIndex(v, cfg, func(ix *index.Index) error {
+			sc := "*"
+			if given["scope"] {
+				sc = scope.Resolve(*scopeFlag)
+			}
+			keys, err := ix.Keys(sc)
+			if err != nil {
+				return err
+			}
+			drift, err := ix.KeyDrift(sc)
+			if err != nil {
+				return err
+			}
+			names, _ := ix.ScopeNames()
+			for i := range keys {
+				keys[i].ScopeName = scopeLabel(names, keys[i].Scope)
+			}
+			for i := range drift {
+				drift[i].ScopeName = scopeLabel(names, drift[i].Scope)
+			}
+			if *jsonOut {
+				if keys == nil {
+					keys = []index.KeyStat{}
+				}
+				if drift == nil {
+					drift = []index.KeyPair{}
+				}
+				return json.NewEncoder(os.Stdout).Encode(map[string]any{"keys": keys, "drift": drift})
+			}
+			if len(keys) == 0 {
+				fmt.Println("no keyed memories")
+				return nil
+			}
+			last := ""
+			for _, k := range keys {
+				if k.ScopeName != last {
+					if last != "" {
+						fmt.Println()
+					}
+					fmt.Println(k.ScopeName)
+					last = k.ScopeName
+				}
+				fmt.Printf("  %-14s %-32s %3d current %3d written\n", k.Kind, k.Key, k.Current, k.Total)
+			}
+			printDrift(drift)
+			return nil
+		})
+
 	case "insights":
 		return withIndex(v, cfg, func(ix *index.Index) error {
 			in, err := ix.Insights(*days, time.Local)
@@ -442,9 +496,16 @@ func run(args []string) error {
 			for i := range in.RecentlyUsed {
 				in.RecentlyUsed[i].ScopeName = names[in.RecentlyUsed[i].Scope]
 			}
+			if in.KeyDrift, err = ix.KeyDrift("*"); err != nil {
+				return err
+			}
+			for i := range in.KeyDrift {
+				in.KeyDrift[i].ScopeName = scopeLabel(names, in.KeyDrift[i].Scope)
+			}
 			if *jsonOut {
 				return json.NewEncoder(os.Stdout).Encode(in)
 			}
+			defer printDrift(in.KeyDrift)
 			total := 0
 			for _, d := range in.WritesByDay {
 				total += d.Count
@@ -1281,6 +1342,39 @@ func dash(s string) string {
 		return "-"
 	}
 	return s
+}
+
+func scopeLabel(names map[string]string, sc string) string {
+	if n, ok := names[sc]; ok && n != "" {
+		return n
+	}
+	return sc
+}
+
+// printDrift lists keys that look like one subject, and how to merge them.
+func printDrift(drift []index.KeyPair) {
+	if len(drift) == 0 {
+		return
+	}
+	fmt.Println("\nkeys that may be one subject (each holds its own answer):")
+	for _, p := range drift {
+		fmt.Printf("  %s ~ %s  (%s, %s)\n", p.A, p.B, p.ScopeName, p.Kind)
+	}
+	fmt.Println("to merge: write the answer under the key to keep, then membraid forget OTHER-KEY --scope SCOPE")
+}
+
+// similarKeyNote tells whoever is writing under a new key that it looks like
+// one already in use, before a second subject quietly starts holding the fact.
+func similarKeyNote(key string, similar []string) string {
+	if len(similar) == 0 {
+		return ""
+	}
+	verb := "looks"
+	if len(similar) > 1 {
+		verb = "look"
+	}
+	k := index.NormalizeKey(key)
+	return fmt.Sprintf("Key %q is new here, but %s %s like the same subject. If it is, write this again under that key and forget %q, so one key holds the answer.", k, strings.Join(similar, ", "), verb, k)
 }
 
 func plural(n int) string {

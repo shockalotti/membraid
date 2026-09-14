@@ -477,6 +477,7 @@ func (s *mcpServer) callTool(req rpcRequest) {
 			s.text(req.ID, err.Error(), true)
 			return
 		}
+		similar, _ := s.ix.SimilarKeys(writeScope, a.Kind, a.Key)
 		res, err := s.ix.Write(index.Memory{Kind: a.Kind, Key: a.Key, Content: a.Content, Scope: writeScope, Source: s.source, SessionRef: s.session})
 		if err != nil {
 			s.text(req.ID, err.Error(), true)
@@ -497,6 +498,9 @@ func (s *mcpServer) callTool(req rpcRequest) {
 			} else {
 				msg += fmt.Sprintf(" This replaced %d earlier answer%s on the same subject (%s).", n, plural(n), ids)
 			}
+		}
+		if note := similarKeyNote(a.Key, similar); note != "" {
+			msg += " " + strings.Replace(note, "forget", "memory_forget", 1)
 		}
 		if a.Kind == index.KindTaskState {
 			msg += " Its id is " + res.ID + "; call memory_done when the task is finished."

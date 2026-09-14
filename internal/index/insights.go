@@ -106,6 +106,9 @@ type Insights struct {
 	// across every machine: an agent that never reports use is ranking
 	// nothing by use.
 	UsesBySource map[string]float64 `json:"uses_by_source"`
+	// KeyDrift pairs live keys, across every project, that look like one
+	// subject (SPEC 6.3). The caller fills it.
+	KeyDrift []KeyPair `json:"key_drift"`
 }
 
 // Insights covers the last days days, today included, as days in loc: a person
