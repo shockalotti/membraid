@@ -461,6 +461,32 @@ So each line records the derived outcome, not just the input. Three line types:
 > record retrieval (search results returned to a caller, key and id lookups);
 > the session digest, status and maintenance reads never do (§7.2).
 
+> **Implementation note (v1.16, use heat).** Checkpoint lines also carry two
+> optional arrays: `heat`, this machine's use heat per subject with the time it
+> was last updated (`{"scope","kind","key"}` or `{"id"}`, `"heat"`, `"at"`), and
+> `uses`, its use counts per agent per UTC day for two weeks. They are added in
+> place, without a new `t` or `v`, because readers refuse unknown types and
+> versions but skip unknown fields: an older binary keeps syncing and ranks as it
+> did. A reader keeps the newest value per machine and per subject, and sums
+> across machines at ranking time. Heat fades in proportion, so each machine's
+> value faded to now adds up exactly, and no use is counted twice.
+
+```mermaid
+sequenceDiagram
+    participant A as Machine A index
+    participant V as Vault (git)
+    participant B as Machine B index
+    Note over A: an agent uses a memory twice<br/>A's own heat = 2
+    A->>V: sync, checkpoint line with heat 2 at t1
+    Note over B: an agent uses it once<br/>B's own heat = 1
+    B->>V: sync, checkpoint line with heat 1 at t2
+    V->>A: pull brings B's line
+    Note over A: heat = A's 2 faded + B's 1 faded
+    V->>B: pull brings A's line
+    Note over B: heat = B's 1 faded + A's 2 faded
+    Note over A,B: a binary older than v1.16 skips the heat field
+```
+
 ## 4. Cold Vault (source of truth)
 
 ### 4.1 Layout - folders for humans, `type` for routing
@@ -986,7 +1012,7 @@ and splices the result in with provenance:
 > the digest by `kind x scope x boost`. Appearing in search results or the
 > digest is not use: it still records `last_retrieved`, which sweep and the
 > never-retrieved count read, but it no longer changes rank. Heat is kept per
-> machine and travels in checkpoint lines (§5.3 note below), and ranking
+> machine and travels in checkpoint lines (§5.3, v1.16 note), and ranking
 > settings follow the user in the vault rather than the machine.
 
 > **Implementation note (v1.15).** The fusion design below is amended by

@@ -14,7 +14,7 @@ in files you can read.**
 One sentence more: an agent writes a fact, the engine appends it to a plain-text
 log in the vault and indexes it (markdown concept files are what distillation
 will produce); a later fact on the same subject supersedes the earlier one instead
-of competing with it; what nobody retrieves fades; and you can `grep` the whole
+of competing with it; what agents rely on rises and what nobody uses fades; and you can `grep` the whole
 thing or fix a wrong line in your editor.
 
 ## Who it is for
@@ -48,7 +48,7 @@ That is not a concession, it is the product:
 | Behaviour | Needs the human? | In v1 |
 |---|---|---|
 | Keyed supersession - a newer fact retires the older one | no | **yes** |
-| Decay - unretrieved material sinks in ranking | no | **yes** |
+| Ranking by use - what agents rely on rises, what nobody uses sinks | no | **yes** |
 | Distillation - a subject seen repeatedly becomes one concept | no | **yes** |
 | Sweep - stale material archives itself, store stays bounded | no | **yes** |
 | Files you can read, grep, diff and delete | no | **yes** |
@@ -114,10 +114,11 @@ decision now is to build them rather than wait. Agreed sequence:
 3. **Hybrid search** (§16 M11) - pure Go vector search, embeddings optional ([SEARCH-EVALUATION.md](SEARCH-EVALUATION.md)). **done** - vector store, local embedders (Ollama EmbeddingGemma or built-in all-MiniLM), `membraid embed`, vector-only search with keyword fallback, installer option 
 4. **10** - sweep **Done**: `membraid sweep`, weekly from the sync timer: counts memories unused for 90+ days (left to fade, never deleted), flags open tasks untouched for 14+ days in the digest and status, checkpoints retrieval state, reports to log.md. Concept archival waits for distillation.
 5. **9** - distillation, kept for its readable per-subject markdown files **Done**: `membraid distill`, every 30 minutes from the sync timer: subjects written twice or in two sessions become readable draft notes with their history; a note a person edits is never overwritten. Unkeyed clustering waits.
+6. **Ranking by use** **Done**: heat from writes and reported uses (`memory_used`, key lookups) replaces decay by retrieval, which any search result used to reset; `search --explain`; ranking settings in the vault; a Tuning section in the widget. SPEC v1.16.
 
 | # | Slice | SPEC ref |
 |---|---|---|
-| 8 | Decay in ranking | §7.2 |
+| 8 | Ranking: decay, then by use (v1.16) | §7.2 |
 | 9 | Distillation | §8 |
 | 10 | Sweep | §9 |
 

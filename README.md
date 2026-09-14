@@ -99,7 +99,9 @@ Early. Used daily by its author across two Linux machines and four harnesses.
 - Linux is tested. Windows builds but is untested.
 - Search is keyword full-text by default. Semantic search is optional and
   local: EmbeddingGemma through Ollama, or a model built into membraid.
-- Decay and a scored session digest are in; sweep and distillation are next.
+- Ranking by use is in: memories agents report relying on rise, and ones nobody
+  uses fade ([how](docs/GETTING-STARTED.md#how-memories-are-ranked)). So are
+  sweep and distillation.
 
 ## Docs
 

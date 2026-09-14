@@ -363,26 +363,50 @@ need work, not the plumbing.
 | `memory_done` | Mark a task finished, by key or id, so it leaves *where you left off* |
 | `memory_forget` | Retire a memory that is wrong with nothing to replace it; it stays in history |
 
-### How memories are ranked
-
-Search ranks by **relevance x boost**, and the digest by **kind x scope x
-boost**, where boost comes from *heat*: every write to a subject and every
-reported use of it adds 1, and each halves every `halflife_days` (30). Up to one
-use, boost is the heat; above that it grows slowly, `1 + frequency_boost x
-ln(heat)`, so a memory relied on again and again rises without beating a
-clearly more relevant one. A use is an agent calling `memory_used` or asking
-for exactly that memory with `memory_get`. Showing up in results or the digest
-is not use. See the numbers for any search with `membraid search QUERY
---explain`, and for the digest with `membraid context --explain`.
-
-The ranking settings (`halflife_days`, `frequency_boost`, `digest_items`,
-`digest_shared_weight`) follow you, not the machine: `membraid config set`
-stores them in the vault, so every machine ranks alike after it syncs.
-
 The `key` is what makes this a shared brain rather than a pile. Claude Code
 writes `deploy.target = railway`; three weeks later Grok writes
 `deploy.target = fly.io`; there is **one** live answer and the old one stays in
 history with the agent that wrote it.
+
+## How memories are ranked
+
+Search ranks by **relevance x boost**, and the digest by **kind x scope x
+boost**, where boost comes from *heat*:
+
+```mermaid
+flowchart LR
+    W["A write to the memory<br/>(restating its key counts)"] -->|"+1"| H
+    U["An agent calls memory_used,<br/>or memory_get on exactly it"] -->|"+1"| H
+    S["It shows up in search results<br/>or in the digest"] -.->|"not counted"| N["no change"]
+    H["Heat<br/>every +1 halves each halflife_days"] --> C{"heat above 1?"}
+    C -->|"no"| B1["boost = heat"]
+    C -->|"yes"| B2["boost = 1 + frequency_boost x ln(heat)"]
+    Q["Relevance to the query<br/>(keywords, or meaning)"] --> R
+    B1 --> R["Search score = relevance x boost"]
+    B2 --> R
+    B1 --> D["Digest score = kind x scope x boost"]
+    B2 --> D
+```
+
+- **Heat** is 1 for every write to the subject and 1 for every reported use,
+  each halving every `halflife_days` (30). A keyed memory's heat belongs to its
+  key, so restating it keeps its history.
+- **A use** is an agent calling `memory_used` because the memory changed what it
+  did, or asking for exactly that memory with `memory_get`. Showing up in
+  results or the digest is not use: otherwise whatever surfaces most would keep
+  itself on top.
+- **Boost** is the heat up to one use, then grows slowly, so a memory relied on
+  again and again rises without beating a clearly more relevant one. A memory
+  nobody has used ranks by its own write fading, as it always did.
+- **See the numbers** for any search with `membraid search QUERY --explain`, and
+  for the digest with `membraid context --explain`.
+
+Heat is counted on each machine and travels with sync, and the ranking
+settings (`halflife_days`, `frequency_boost`, `digest_items`,
+`digest_shared_weight`) follow you, not the machine: `membraid config set`
+stores them in the vault, so every machine ranks alike. The widget's Settings
+tab has presets and, under *Advanced*, a live search that shows each result's
+score as you change them.
 
 ## What an agent actually sees
 
@@ -399,10 +423,11 @@ Claude Code and Hermes may keep MCP tools behind a tool search until the model
 asks for them, so the definitions are not always in the prompt.
 
 The digest is the only part built from memory. It holds up to 8 open tasks in
-this project, the 12 newest facts (preferences, project values, insights) from
-this project plus `shared`, each clipped to 240 characters, and a count of open
-tasks per other project. It is chosen by **recency, not relevance**: it does not
-know what you are about to ask. Claude Code gets it from the `SessionStart`
+this project, the 12 highest-scoring facts (preferences, project values,
+insights; `digest_items`) from this project plus `shared`, each clipped to 240
+characters, and a count of open tasks per other project. Facts are scored by
+kind, scope and heat (see *How memories are ranked*), not by relevance: the
+digest does not know what you are about to ask. Claude Code gets it from the `SessionStart`
 hook, OpenCode from its plugin (re-attached to every request, but the same text
 all session), Hermes from its plugin on the first turn, Codex from its `SessionStart` hook,
 Copilot and Cursor from their `sessionStart` hooks, Crush, Gemini and Pi with the MCP server
