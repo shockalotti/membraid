@@ -97,6 +97,32 @@ type CheckpointLine struct {
 	Header
 	Rows     []CheckpointRow     `json:"rows"`
 	Concepts []CheckpointConcept `json:"concepts"`
+	// Heat and Uses are optional additions (SPEC changelog v1.16): this
+	// machine's use of memories, for ranking by use. A reader that predates
+	// them ignores them and ranks as it always did, so they need no new line
+	// type or version, either of which older binaries refuse outright.
+	Heat []CheckpointHeat `json:"heat,omitempty"`
+	Uses []CheckpointUse  `json:"uses,omitempty"`
+}
+
+// CheckpointHeat is one subject's use heat on the machine that wrote the line:
+// every use added 1 (or a fraction), and the total halves every halflife since.
+// A keyed subject is named by scope, kind and key, so its heat survives the
+// memory being restated; an unkeyed one by its row id.
+type CheckpointHeat struct {
+	ID    string  `json:"id,omitempty"`
+	Scope string  `json:"scope,omitempty"`
+	Kind  string  `json:"kind,omitempty"`
+	Key   string  `json:"key,omitempty"`
+	Heat  float64 `json:"heat"`
+	At    string  `json:"at"`
+}
+
+// CheckpointUse counts uses by agent per UTC day on the writing machine.
+type CheckpointUse struct {
+	Day    string  `json:"day"`
+	Source string  `json:"source"`
+	N      float64 `json:"n"`
 }
 
 type CheckpointRow struct {
@@ -253,6 +279,20 @@ func (l *Log) Close() error {
 	err := l.f.Close()
 	l.f = nil
 	return err
+}
+
+// Host is this machine's name as it appears in its log file names.
+func (l *Log) Host() string { return l.host }
+
+var fileHost = regexp.MustCompile(`^writes-\d{4}-\d{2}-(.+)\.jsonl$`)
+
+// HostOfFile is the machine a log file belongs to, or "" for a file from
+// before per-host naming.
+func HostOfFile(path string) string {
+	if m := fileHost.FindStringSubmatch(filepath.Base(path)); m != nil {
+		return m[1]
+	}
+	return ""
 }
 
 // Files lists every log file in the vault, from every machine. Order carries

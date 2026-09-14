@@ -64,8 +64,8 @@ func TestMCPStdioRoundTrip(t *testing.T) {
 		t.Errorf("protocolVersion should echo the client: %v", got)
 	}
 	tools := result(t, byID[2])["tools"].([]any)
-	if len(tools) != 5 {
-		t.Errorf("want 5 tools, got %d", len(tools))
+	if len(tools) != 6 {
+		t.Errorf("want 6 tools, got %d", len(tools))
 	}
 	if txt := toolText(t, byID[4]); !strings.Contains(txt, "replaced 1 earlier answer") {
 		t.Errorf("second write must supersede the first: %q", txt)

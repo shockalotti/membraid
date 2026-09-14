@@ -8,6 +8,44 @@ next agent in the loop.
 
 ---
 
+## v1.16 (ranking by use, and ranking settings that follow the user)
+
+**Use, not appearance, is the ranking signal (§7.2).** Rank used to decay from
+the last time a memory was retrieved, and every search result counted as
+retrieved: a search returning ten memories kept all ten fresh, and a memory
+used fifty times ranked like one used once. Now each subject carries *heat*:
+1 per write, history included, and 1 per reported use, each halving every
+`halflife_days`. A use is `memory_used` (new tool; `membraid used` on the CLI),
+which agents are told to call when a memory changed what they did, or a
+`memory_get` of that exact subject. `boost(heat)` is the heat up to one use,
+then `1 + frequency_boost x ln(heat)`, so repetition lifts a memory without
+letting it beat a clearly more relevant one. Search ranks by
+`relevance x boost` and the digest by `kind x scope x boost`; `search --explain`
+and `context --explain` print the factors. A never-used memory's heat is its
+own write fading, which ranks as before. Unkeyed facts in the digest carry a
+short id (`#1a2b3c4d`) so they can be reported.
+
+**Heat crosses machines in checkpoint lines, without a new line type or
+version (§5.3).** Readers refuse unknown `t` and `v` values, so either would
+break every older binary still syncing the vault. Checkpoint lines gain two
+optional arrays instead, which older readers skip: `heat` (this machine's
+heat per subject, with the time it was last updated) and `uses` (use counts
+per agent per day for two weeks). A reader keeps the newest value per machine
+and sums across machines; because heat fades in proportion, each machine's
+value can be faded to now separately, so the sum is exact and no use is
+counted twice. This is an amendment to the writer-side rule that any field
+change bumps `v`: an optional field that an older reader ignores without
+misreading anything may be added in place, and must be recorded here.
+
+**Ranking settings live in the vault.** `halflife_days`, `frequency_boost`,
+`digest_items` and `digest_shared_weight` are set with `membraid config set`
+as before but stored in `.hot/settings-<host>.json`, one file per machine so
+two machines never conflict in git, newest value per key winning. The log
+reader only opens `writes-*.jsonl`, so older binaries never see them. A
+halflife set locally before this still applies until the vault has one.
+
+---
+
 ## v1.15.5 (implementation amendments: Cursor CLI)
 
 **Cursor CLI takes a hook, in its own shape.** The server goes in

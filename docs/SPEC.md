@@ -976,6 +976,19 @@ and splices the result in with provenance:
 
 ### 7.2 Ranking: wide fusion pool, then one decay knob
 
+> **Implementation note (v1.16, ranking by use).** Decay by time since last
+> retrieval is replaced by *use heat*. A subject (a keyed memory's scope, kind
+> and key, or an unkeyed memory's id) collects 1 for every write, history
+> included, and 1 for every reported use: `memory_used`, which an agent calls
+> when a memory changed what it did, or a `memory_get` of exactly that subject.
+> Each contribution halves every `halflife_days`. `boost = heat` up to one use,
+> then `1 + frequency_boost x ln(heat)`; search ranks by `relevance x boost`,
+> the digest by `kind x scope x boost`. Appearing in search results or the
+> digest is not use: it still records `last_retrieved`, which sweep and the
+> never-retrieved count read, but it no longer changes rank. Heat is kept per
+> machine and travels in checkpoint lines (§5.3 note below), and ranking
+> settings follow the user in the vault rather than the machine.
+
 > **Implementation note (v1.15).** The fusion design below is amended by
 > measurement: keyword queries drop stopwords and OR their terms, and when
 > embeddings are enabled retrieval is vector-only rather than fused, because

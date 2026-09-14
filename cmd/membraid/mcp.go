@@ -165,6 +165,8 @@ func (s *mcpServer) flush() {
 // stays current even where no timer runs. At most one pull is started per
 // interval, so an offline machine is not hammered with fetches.
 func (s *mcpServer) refresh() {
+	// Ranking settings live in the vault and may have changed since the last call.
+	s.ix.SetRanking(loadRanking(s.v, s.cfg))
 	if n, err := s.ix.ImportAll(); err != nil {
 		fmt.Fprintf(os.Stderr, "membraid: import: %v\n", err)
 	} else if n > 0 {
@@ -300,6 +302,7 @@ const serverInstructionsTemplate = `membraid is the user's shared memory across 
 Read:
 - Before asking the user something they may already have told an agent, or starting work on a project, call memory_search.
 - To check one specific fact, memory_get with its key is cheapest.
+- When a memory actually changes what you do (you follow a preference, use a value, rely on an insight), call memory_used with its id or key. That is what ranks useful memories higher for every agent; a memory that only showed up in results does not count.
 - {{search}}
 
 Write (memory_write) when:
@@ -344,6 +347,20 @@ func toolDefs(semantic bool) []map[string]any {
 		searchHow = "It matches meaning: describe what you need; if the results miss, rephrase, or memory_get the likely key."
 	}
 	return []map[string]any{
+		{
+			"name": "memory_used",
+			"description": "Tell membraid which memories actually changed what you did: a preference you followed, a project value you used, an insight you relied on. " +
+				"This is what ranks useful memories higher for every agent on every machine; appearing in memory_search results or the digest does not count. " +
+				"Pass ids from memory_search results or the digest (\"#1a2b3c4d\" works), or keys. Do not report memories you only read.",
+			"inputSchema": map[string]any{
+				"type": "object",
+				"properties": map[string]any{
+					"ids":   map[string]any{"type": "array", "items": map[string]any{"type": "string"}, "description": "Ids of memories that changed what you did."},
+					"keys":  map[string]any{"type": "array", "items": map[string]any{"type": "string"}, "description": "Keys of memories that changed what you did, e.g. deploy.target."},
+					"scope": map[string]any{"type": "string", "description": "Omit for the current project."},
+				},
+			},
+		},
 		{
 			"name": "memory_write",
 			"description": "Record something worth remembering across sessions and across agents. " +
@@ -436,13 +453,15 @@ func (s *mcpServer) callTool(req rpcRequest) {
 		return
 	}
 	var a struct {
-		Content string `json:"content"`
-		Kind    string `json:"kind"`
-		Key     string `json:"key"`
-		ID      string `json:"id"`
-		Scope   string `json:"scope"`
-		Query   string `json:"query"`
-		Limit   int    `json:"limit"`
+		IDs     []string `json:"ids"`
+		Keys    []string `json:"keys"`
+		Content string   `json:"content"`
+		Kind    string   `json:"kind"`
+		Key     string   `json:"key"`
+		ID      string   `json:"id"`
+		Scope   string   `json:"scope"`
+		Query   string   `json:"query"`
+		Limit   int      `json:"limit"`
 	}
 	_ = json.Unmarshal(p.Arguments, &a)
 	sc := scope.Resolve(a.Scope)
@@ -532,6 +551,34 @@ func (s *mcpServer) callTool(req rpcRequest) {
 		}
 		s.text(req.ID, strings.TrimRight(b.String(), "\n"), false)
 
+	case "memory_used":
+		ids := a.IDs
+		if a.ID != "" {
+			ids = append(ids, a.ID)
+		}
+		keys := a.Keys
+		if a.Key != "" {
+			keys = append(keys, a.Key)
+		}
+		if len(ids) == 0 && len(keys) == 0 {
+			s.text(req.ID, "memory_used needs ids or keys of the memories that changed what you did.", true)
+			return
+		}
+		refs, missing := useRefs(s.ix, sc, ids, keys)
+		used, err := s.ix.MarkUsed(refs, s.source, 1)
+		if err != nil {
+			s.text(req.ID, err.Error(), true)
+			return
+		}
+		msg := fmt.Sprintf("Noted %d as used.", len(used))
+		if len(used) < len(refs) || len(missing) > 0 {
+			msg += " Some did not match a current memory; check the ids or keys with memory_search."
+		}
+		s.text(req.ID, msg, false)
+		if len(used) > 0 {
+			s.scheduleSync()
+		}
+
 	case "memory_get":
 		var b strings.Builder
 		var touched []string
@@ -549,6 +596,10 @@ func (s *mcpServer) callTool(req rpcRequest) {
 		}
 		if err := s.ix.Touch(touched); err != nil {
 			fmt.Fprintf(os.Stderr, "membraid: could not record retrieval: %v\n", err)
+		}
+		// Asking for exactly this subject is using it.
+		if _, err := s.ix.MarkUsed(touched, s.source, 1); err != nil {
+			fmt.Fprintf(os.Stderr, "membraid: could not record use: %v\n", err)
 		}
 		if b.Len() == 0 {
 			s.text(req.ID, "No current answer for "+a.Key+".", false)

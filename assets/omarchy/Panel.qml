@@ -64,6 +64,10 @@ Panel {
   property string correctingId: ""
   property string confirmForgetId: ""
 
+  // Settings tab: ranking tuning
+  property bool tuningOpen: false
+  property var preview: []
+
   readonly property var doing: status.doing || []
   readonly property var sync: status.sync || ({})
   readonly property var search: status.search || ({})
@@ -135,7 +139,7 @@ Panel {
     load(projectsProcess)
     if (root.tab === "memories") loadMemories()
     else if (root.tab === "insights") load(insightsProcess)
-    else if (root.tab === "settings") { load(configProcess); load(harnessProcess); checkUpdates(false) }
+    else if (root.tab === "settings") { load(configProcess); load(harnessProcess); checkUpdates(false); loadPreview() }
   }
 
   function loadMemories() {
@@ -158,6 +162,39 @@ Panel {
     if (!force && Date.now() - root.updateCheckedMs < 3600 * 1000) return
     root.updateCheckedMs = Date.now()
     load(updateProcess)
+  }
+
+  // Ranking presets. Each is a halflife and a repeat-use boost; digest settings
+  // are left as they are.
+  readonly property var presets: [
+    { value: "recent", label: "Favour recent", halflife: 14, boost: 0.5 },
+    { value: "balanced", label: "Balanced", halflife: 30, boost: 1 },
+    { value: "long", label: "Favour long-lived", halflife: 90, boost: 1.5 }
+  ]
+  function presetOf() {
+    for (var i = 0; i < root.presets.length; i++) {
+      var p = root.presets[i]
+      if (Number(root.config.halflife_days) === p.halflife && Math.abs(Number(root.config.frequency_boost) - p.boost) < 0.001) return p.value
+    }
+    return ""
+  }
+  function applyPreset(value) {
+    for (var i = 0; i < root.presets.length; i++) {
+      var p = root.presets[i]
+      if (p.value !== value) continue
+      root.runAction(["config", "set", "halflife_days", String(p.halflife)])
+      root.runAction(["config", "set", "frequency_boost", String(p.boost)])
+    }
+  }
+
+  // A live search with its score parts, so a change of setting can be judged
+  // by how real results reorder. Never counts as use.
+  function loadPreview() {
+    var q = tuneQuery.text.trim()
+    if (q === "") { root.preview = []; return }
+    if (previewProcess.running) { previewProcess.again = true; return }
+    previewProcess.command = [root.binary, "search", q, "--json", "--no-track", "--scope", "*", "-n", "6"]
+    previewProcess.running = true
   }
 
   function selectTab(id) {
@@ -282,6 +319,16 @@ Panel {
   }
 
   Process {
+    id: previewProcess
+    property bool again: false
+    stdout: StdioCollector {
+      waitForEnd: true
+      onStreamFinished: { try { root.preview = JSON.parse(text) || [] } catch (e) { root.preview = [] } }
+    }
+    onExited: if (again) { again = false; root.loadPreview() }
+  }
+
+  Process {
     id: actionProcess
     stderr: StdioCollector {
       waitForEnd: true
@@ -298,6 +345,12 @@ Panel {
       root.pendingSettings = ({})
       for (var k in p) root.runAction(["config", "set", k, p[k]])
     }
+  }
+
+  Timer {
+    id: previewTimer
+    interval: 400
+    onTriggered: root.loadPreview()
   }
 
   Timer {
@@ -843,6 +896,17 @@ Panel {
               text: "No agent has written this week. If you have been using one, check that membraid is set up in it (Settings)."
             }
 
+            PanelSectionHeader { text: "Reported uses by agent"; foreground: root.foreground; fontFamily: root.fontFamily }
+            Repeater {
+              model: Object.keys(root.insights.uses_by_source || {}).sort(function(a, b) { return root.insights.uses_by_source[b] - root.insights.uses_by_source[a] })
+              Body { width: column.width; text: modelData + "   " + Math.round(root.insights.uses_by_source[modelData]) }
+            }
+            Caption {
+              visible: Object.keys(root.insights.uses_by_source || {}).length === 0
+              width: parent.width
+              text: "No agent has reported using a memory this week. Agents call memory_used when a memory changes what they do; one that never does ranks nothing by use."
+            }
+
             PanelSectionHeader { text: "Use"; foreground: root.foreground; fontFamily: root.fontFamily }
             Body {
               width: parent.width
@@ -898,13 +962,97 @@ Panel {
               }
             }
 
-            PanelSectionHeader { text: "Memory"; foreground: root.foreground; fontFamily: root.fontFamily }
-            NumberField {
-              label: "Days unused before a memory's rank halves"
-              from: 1; to: 3650; stepSize: 5
-              value: root.config.halflife_days || 30
-              onModified: function(v) { root.queueSetting("halflife_days", v) }
+            PanelSectionHeader { text: "Ranking (saved in the vault: every machine ranks alike)"; foreground: root.foreground; fontFamily: root.fontFamily }
+            Caption {
+              width: parent.width
+              text: "Memories are ordered by relevance x use. Use counts every write and every time an agent reported a memory changed what it did, each fading over time. Showing up in results does not count."
             }
+            ButtonGroup {
+              options: root.presets.map(function(p) { return { value: p.value, label: p.label } })
+              value: root.presetOf()
+              foreground: root.foreground
+              fontFamily: root.fontFamily
+              fontSize: Style.font.bodySmall
+              focusable: false
+              onChanged: function(v) { root.applyPreset(v) }
+            }
+            Link {
+              text: root.tuningOpen ? "Hide advanced" : "Advanced"
+              onActivated: root.tuningOpen = !root.tuningOpen
+            }
+            Column {
+              visible: root.tuningOpen
+              width: parent.width
+              spacing: Style.space(8)
+
+              Row {
+                spacing: Style.spacing.xxl
+                NumberField {
+                  label: "Half-life (days)"
+                  from: 1; to: 3650; stepSize: 5
+                  value: root.config.halflife_days || 30
+                  onModified: function(v) { root.queueSetting("halflife_days", v) }
+                }
+                NumberField {
+                  label: "Digest size"
+                  from: 1; to: 50; stepSize: 1
+                  value: root.config.digest_items || 12
+                  onModified: function(v) { root.queueSetting("digest_items", v) }
+                }
+              }
+              Body {
+                width: parent.width
+                text: "Repeat-use boost: " + Number(root.config.frequency_boost !== undefined ? root.config.frequency_boost : 1).toFixed(2)
+                      + "   (0: use only keeps a memory fresh)"
+              }
+              PanelSlider {
+                width: parent.width
+                bar: root.bar
+                minimum: 0; maximum: 3; step: 0.1
+                value: root.config.frequency_boost !== undefined ? Number(root.config.frequency_boost) : 1
+                onReleased: function(v) { root.queueSetting("frequency_boost", Number(v).toFixed(2)) }
+              }
+              Body {
+                width: parent.width
+                text: "Shared memories in a project's digest: x" + Number(root.config.digest_shared_weight || 0.7).toFixed(2)
+              }
+              PanelSlider {
+                width: parent.width
+                bar: root.bar
+                minimum: 0.1; maximum: 1; step: 0.05
+                value: Number(root.config.digest_shared_weight || 0.7)
+                onReleased: function(v) { root.queueSetting("digest_shared_weight", Number(v).toFixed(2)) }
+              }
+
+              TextField {
+                id: tuneQuery
+                width: parent.width
+                placeholderText: "Try a search to see how it ranks"
+                foreground: root.foreground
+                onTextChanged: previewTimer.restart()
+                Keys.onEscapePressed: { if (text !== "") text = ""; else keyCatcher.forceActiveFocus() }
+              }
+              Repeater {
+                model: root.preview
+                Column {
+                  width: column.width
+                  spacing: Style.space(1)
+                  Body { width: parent.width; maximumLineCount: 1; elide: Text.ElideRight; text: (index + 1) + ". " + modelData.content }
+                  Caption {
+                    visible: !!modelData.why
+                    width: parent.width
+                    text: modelData.why
+                          ? "score " + modelData.why.score.toFixed(3) + " = relevance " + modelData.why.relevance.toFixed(3)
+                            + " x boost " + modelData.why.boost.toFixed(2) + "   (" + modelData.why.writes + " write"
+                            + (modelData.why.writes === 1 ? "" : "s") + ", " + modelData.why.uses.toFixed(1) + " uses"
+                            + (modelData.why.last_used ? ", last " + root.ago(modelData.why.last_used) : "") + ")"
+                          : ""
+                  }
+                }
+              }
+            }
+
+            PanelSectionHeader { text: "Search"; foreground: root.foreground; fontFamily: root.fontFamily }
             Caption { width: parent.width; text: "Search by meaning (embeddings are computed on this machine, never sent anywhere):" }
             ButtonGroup {
               options: [

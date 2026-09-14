@@ -35,10 +35,10 @@ var validKinds = map[string]bool{
 const ScopeShared = "shared"
 
 type Index struct {
-	db           *sql.DB
-	log          *wirelog.Log
-	now          func() time.Time
-	halflifeDays float64
+	db   *sql.DB
+	log  *wirelog.Log
+	now  func() time.Time
+	rank Ranking
 
 	// In-memory sign bits for vector search, used by long-lived processes
 	// (see EnableVectorCache). vmu guards vcache.
@@ -349,6 +349,9 @@ func applyClose(tx *sql.Tx, c wirelog.CloseLine) error {
 // hold a live answer on the same subject, the older is closed first: moving it
 // across unchanged would put two live answers on one subject.
 func applyRescope(tx *sql.Tx, from, to string) (int, error) {
+	if err := rescopeHeat(tx, from, to); err != nil {
+		return 0, err
+	}
 	rows, err := tx.Query(`
 		SELECT a.id, a.valid_from, b.id, b.valid_from
 		  FROM memories a JOIN memories b
@@ -421,7 +424,11 @@ func (ix *Index) ImportLog(files []string) (int, error) {
 	}
 	defer tx.Rollback()
 
-	var entries []wirelog.Entry
+	type fromHost struct {
+		wirelog.Entry
+		host string
+	}
+	var entries []fromHost
 	positions := map[string]int64{}
 	for _, f := range files {
 		base := filepath.Base(f)
@@ -438,7 +445,10 @@ func (ix *Index) ImportLog(files []string) (int, error) {
 		if err != nil {
 			return 0, fmt.Errorf("index: import %s: %w", base, err)
 		}
-		entries = append(entries, es...)
+		host := wirelog.HostOfFile(f)
+		for _, e := range es {
+			entries = append(entries, fromHost{e, host})
+		}
 		positions[base] = next
 	}
 
@@ -465,6 +475,9 @@ func (ix *Index) ImportLog(files []string) (int, error) {
 			}
 		case e.Checkpoint != nil:
 			if err := applyCheckpoint(tx, *e.Checkpoint); err != nil {
+				return 0, err
+			}
+			if err := applyHeat(tx, *e.Checkpoint, e.host, ix.selfHost()); err != nil {
 				return 0, err
 			}
 		case e.Distill != nil:
@@ -678,6 +691,8 @@ type Hit struct {
 	Scope   string `json:"scope"`
 	Source  string `json:"source"`
 	At      string `json:"at,omitempty"`
+	// Why is how the score came about, filled in by search.
+	Why *Why `json:"why,omitempty"`
 	// ScopeName is the readable project name, filled in by callers that show
 	// more than one project at once. An id like g0c59d778 means nothing to read.
 	ScopeName string `json:"scope_name,omitempty"`

@@ -265,7 +265,9 @@ it for five tabs (`h` / `l` switch between them, `/` searches, `r` refreshes):
 - **Insights** - writes per day and per agent over the last week, and how much
   memory agents actually retrieve. An agent that never appears here is one whose
   setup may be broken.
-- **Settings** - auto-sync and its timings, the decay half-life, search by
+- **Settings** - auto-sync and its timings, ranking (presets, and under
+  *Advanced* the half-life, repeat-use boost and digest settings, with a live
+  search that shows each result's score as you change them), search by
   meaning, sync / embed / sweep / distill now, every harness and whether
   membraid is set up in it (with *Set up*, which opens a terminal running
   `membraid install`), and the version with *Update*.
@@ -357,8 +359,25 @@ need work, not the plumbing.
 | `memory_write` | Record a fact. With a `key`, a later write on the same subject **replaces** it rather than competing |
 | `memory_search` | Search current memory: this project plus `shared` |
 | `memory_get` | The live answer for one subject key |
+| `memory_used` | Report that memories changed what the agent did; this is what ranks useful memories higher |
 | `memory_done` | Mark a task finished, by key or id, so it leaves *where you left off* |
 | `memory_forget` | Retire a memory that is wrong with nothing to replace it; it stays in history |
+
+### How memories are ranked
+
+Search ranks by **relevance x boost**, and the digest by **kind x scope x
+boost**, where boost comes from *heat*: every write to a subject and every
+reported use of it adds 1, and each halves every `halflife_days` (30). Up to one
+use, boost is the heat; above that it grows slowly, `1 + frequency_boost x
+ln(heat)`, so a memory relied on again and again rises without beating a
+clearly more relevant one. A use is an agent calling `memory_used` or asking
+for exactly that memory with `memory_get`. Showing up in results or the digest
+is not use. See the numbers for any search with `membraid search QUERY
+--explain`, and for the digest with `membraid context --explain`.
+
+The ranking settings (`halflife_days`, `frequency_boost`, `digest_items`,
+`digest_shared_weight`) follow you, not the machine: `membraid config set`
+stores them in the vault, so every machine ranks alike after it syncs.
 
 The `key` is what makes this a shared brain rather than a pile. Claude Code
 writes `deploy.target = railway`; three weeks later Grok writes
@@ -372,7 +391,7 @@ history with the agent that wrote it.
 | What | Size | Contains memories? |
 |---|---|---|
 | MCP server instructions: when to search, when to write, keys, no secrets | ~1,500 chars | no |
-| Five tool definitions | ~3,900 chars | no |
+| Six tool definitions | ~4,500 chars | no |
 | The membraid skill: only its description, until the agent loads it | ~375 chars (~7,800 if loaded) | no |
 | The digest | under 4,000 chars | **yes** |
 

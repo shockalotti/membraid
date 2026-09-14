@@ -102,6 +102,10 @@ type Insights struct {
 	Current        int            `json:"current"`
 	NeverUsed      int            `json:"never_used"`
 	RecentlyUsed   []Hit          `json:"recently_used"`
+	// UsesBySource counts memory_used reports and key lookups per agent,
+	// across every machine: an agent that never reports use is ranking
+	// nothing by use.
+	UsesBySource map[string]float64 `json:"uses_by_source"`
 }
 
 // Insights covers the last days days, today included, as days in loc: a person
@@ -160,6 +164,9 @@ func (ix *Index) Insights(days int, loc *time.Location) (*Insights, error) {
 	}
 	if used != nil {
 		in.RecentlyUsed = used
+	}
+	if in.UsesBySource, err = ix.UsesBySource(days); err != nil {
+		return nil, err
 	}
 	return in, nil
 }

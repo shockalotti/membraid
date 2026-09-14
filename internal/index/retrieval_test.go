@@ -16,8 +16,8 @@ func lastRetrieved(t *testing.T, ix *Index, id string) string {
 	return v.String
 }
 
-// Two memories match a query equally well. The one an agent retrieved today
-// must outrank the one nobody has used in three halflives.
+// Two memories match a query equally well. The one an agent used today must
+// outrank the one nobody has used in three halflives.
 func TestSearchRanksUnusedMemoriesLower(t *testing.T) {
 	ix := newIndex(t)
 	clock := time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)
@@ -26,7 +26,7 @@ func TestSearchRanksUnusedMemoriesLower(t *testing.T) {
 	used, _ := ix.Write(Memory{Kind: KindInsight, Content: "bravo deploys via railway", Source: "x"})
 
 	clock = clock.Add(90 * 24 * time.Hour)
-	if err := ix.Touch([]string{used.ID}); err != nil {
+	if _, err := ix.MarkUsed([]string{used.ID}, "x", 1); err != nil {
 		t.Fatal(err)
 	}
 	hits, err := ix.Search("railway deploys", "shared", 10)

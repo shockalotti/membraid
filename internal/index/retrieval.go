@@ -17,30 +17,6 @@ import (
 // when fractional seconds differ in length.
 const retrievedFormat = "2006-01-02T15:04:05.000000000Z07:00"
 
-const defaultHalflifeDays = 30
-
-// SetHalflife sets how many days without retrieval halve a memory's rank
-// (SPEC 7.2, halflife_days).
-func (ix *Index) SetHalflife(days int) {
-	if days < 1 {
-		days = defaultHalflifeDays
-	}
-	ix.halflifeDays = float64(days)
-}
-
-func (ix *Index) halflife() float64 {
-	if ix.halflifeDays <= 0 {
-		return defaultHalflifeDays
-	}
-	return ix.halflifeDays
-}
-
-// decay is exp(-ln2 * unused / halflife): 1 for a memory used today, 0.5 after
-// one halflife unused, 0.25 after two.
-func (ix *Index) decay(unusedDays float64) float64 {
-	return math.Exp(-math.Ln2 * unusedDays / ix.halflife())
-}
-
 // unusedDays counts from the later of the write and the last retrieval, floored
 // at zero: a clock stepping backwards must not boost a row above one.
 func (ix *Index) unusedDays(validFrom, lastRetrieved string) float64 {
@@ -113,11 +89,8 @@ func (ix *Index) Search(q, scope string, limit int) ([]Hit, error) {
 		return nil, fmt.Errorf("index: query: %w", err)
 	}
 	defer rows.Close()
-	type ranked struct {
-		Hit
-		score float64
-	}
-	var cands []ranked
+	var cands []Hit
+	var relevance []float64
 	for rows.Next() {
 		var h Hit
 		var key, retrieved sql.NullString
@@ -127,21 +100,35 @@ func (ix *Index) Search(q, scope string, limit int) ([]Hit, error) {
 		}
 		h.Key = key.String
 		// bm25 is negative in FTS5, more negative for a better match.
-		relevance := math.Max(-bm25, 1e-9)
-		cands = append(cands, ranked{h, relevance * ix.decay(ix.unusedDays(h.At, retrieved.String))})
+		cands = append(cands, h)
+		relevance = append(relevance, math.Max(-bm25, 1e-9))
 	}
 	if err := rows.Err(); err != nil {
 		return nil, err
 	}
-	sort.SliceStable(cands, func(i, j int) bool { return cands[i].score > cands[j].score })
+	rows.Close()
+	return ix.rankByUse(cands, relevance, limit)
+}
+
+// rankByUse scores candidates as relevance x boost(heat) and returns the best
+// limit, each with its Why. Ties keep the order the candidates came in.
+func (ix *Index) rankByUse(cands []Hit, relevance []float64, limit int) ([]Hit, error) {
+	whys, err := ix.explain(cands)
+	if err != nil {
+		return nil, err
+	}
+	for i := range cands {
+		w := whys[cands[i].ID]
+		// A negative cosine would invert the boost; nothing that far off matters.
+		w.Relevance = math.Max(relevance[i], 1e-9)
+		w.Score = w.Relevance * w.Boost
+		cands[i].Why = w
+	}
+	sort.SliceStable(cands, func(i, j int) bool { return cands[i].Why.Score > cands[j].Why.Score })
 	if len(cands) > limit {
 		cands = cands[:limit]
 	}
-	out := make([]Hit, len(cands))
-	for i, c := range cands {
-		out[i] = c.Hit
-	}
-	return out, nil
+	return cands, nil
 }
 
 // applyCheckpoint restores retrieval state from a checkpoint line. SPEC 3.4
@@ -183,6 +170,10 @@ func (ix *Index) Checkpoint(minInterval time.Duration) (int, error) {
 	if t, err := time.Parse(time.RFC3339Nano, last); err == nil && now.Sub(t) < minInterval {
 		return 0, nil
 	}
+	heat, uses, heatNewest, err := ix.heatSnapshot()
+	if err != nil {
+		return 0, err
+	}
 	rows, err := ix.db.Query(`SELECT id, last_retrieved FROM memories WHERE last_retrieved IS NOT NULL ORDER BY id`)
 	if err != nil {
 		return 0, err
@@ -201,18 +192,26 @@ func (ix *Index) Checkpoint(minInterval time.Duration) (int, error) {
 		entries = append(entries, r)
 	}
 	rows.Close()
-	if len(entries) == 0 || (last != "" && !newerTime(newest, last)) {
+	if heatNewest != "" && (newest == "" || newerTime(heatNewest, newest)) {
+		newest = heatNewest
+	}
+	if (len(entries) == 0 && len(heat) == 0) || (last != "" && !newerTime(newest, last)) {
 		return 0, nil
+	}
+	if entries == nil {
+		entries = []wirelog.CheckpointRow{}
 	}
 	line := wirelog.CheckpointLine{
 		Header:   wirelog.NewHeader(wirelog.TypeCheckpoint, now),
 		Rows:     entries,
 		Concepts: []wirelog.CheckpointConcept{},
+		Heat:     heat,
+		Uses:     uses,
 	}
 	if err := ix.log.Append(line); err != nil {
 		return 0, fmt.Errorf("index: wire log: %w", err)
 	}
-	return len(entries), ix.metaSet("last_checkpoint", now.UTC().Format(retrievedFormat))
+	return len(entries) + len(heat), ix.metaSet("last_checkpoint", now.UTC().Format(retrievedFormat))
 }
 
 func (ix *Index) metaGet(key string) string {
@@ -232,10 +231,11 @@ type Scored struct {
 	Hit
 	Score       float64 `json:"score"`
 	Writes      int     `json:"writes"`
-	UnusedDays  float64 `json:"unused_days"`
+	Uses        float64 `json:"uses"`
+	Heat        float64 `json:"heat"`
+	Boost       float64 `json:"boost"`
 	KindWeight  float64 `json:"kind_weight"`
 	ScopeWeight float64 `json:"scope_weight"`
-	Decay       float64 `json:"decay"`
 }
 
 var digestKindWeight = map[string]float64{
@@ -244,35 +244,27 @@ var digestKindWeight = map[string]float64{
 	KindInsight:      0.6, // situational; search finds the rest
 }
 
-const (
-	// digestSharedWeight ranks shared memories below this project's when
-	// answering "what is known here".
-	digestSharedWeight = 0.7
-	// digestMinPreferences keeps standing preferences from being crowded out by
-	// a burst of newer insights.
-	digestMinPreferences = 3
-)
+// digestMinPreferences keeps standing preferences from being crowded out by a
+// burst of newer insights.
+const digestMinPreferences = 3
 
 // Digest picks the n memories a session should start with, by what is known
 // rather than only by what is newest:
 //
-//	score = kind weight x scope weight x (1 + ln writes) x decay
+//	score = kind weight x scope weight x boost(heat)
 //
-// writes counts every write to the subject, history included: a subject
-// restated across sessions has proven it matters. decay uses the later of the
-// last write and the last retrieval. Up to three preferences are kept even
-// when newer memories outscore them. Reading the digest does not touch
-// retrieval state.
+// Heat counts every write to the subject, history included, and every use an
+// agent reported, each fading with the halflife: a subject restated across
+// sessions or used again and again has proven it matters. Up to three
+// preferences are kept even when newer memories outscore them. Reading the
+// digest is not use.
 func (ix *Index) Digest(scope string, n int) ([]Scored, error) {
 	if n <= 0 {
 		return nil, nil
 	}
 	kinds := []string{KindPreference, KindProjectParam, KindInsight}
 	args := []any{}
-	q := `SELECT m.id, m.kind, m.key, m.content, m.scope, m.source, m.valid_from, m.last_retrieved,
-	             CASE WHEN m.key IS NULL THEN 1 ELSE
-	               (SELECT COUNT(*) FROM memories h WHERE h.scope=m.scope AND h.kind=m.kind AND h.key=m.key)
-	             END
+	q := `SELECT m.id, m.kind, m.key, m.content, m.scope, m.source, m.valid_from
 	        FROM memories m
 	       WHERE m.valid_to IS NULL AND m.kind IN (` + placeholders(len(kinds)) + `)`
 	for _, k := range kinds {
@@ -290,25 +282,34 @@ func (ix *Index) Digest(scope string, n int) ([]Scored, error) {
 	}
 	defer rows.Close()
 	var all []Scored
+	var hits []Hit
 	for rows.Next() {
-		var s Scored
-		var key, retrieved sql.NullString
-		if err := rows.Scan(&s.ID, &s.Kind, &key, &s.Content, &s.Scope, &s.Source, &s.At, &retrieved, &s.Writes); err != nil {
+		var h Hit
+		var key sql.NullString
+		if err := rows.Scan(&h.ID, &h.Kind, &key, &h.Content, &h.Scope, &h.Source, &h.At); err != nil {
 			return nil, err
 		}
-		s.Key = key.String
-		s.KindWeight = digestKindWeight[s.Kind]
-		s.ScopeWeight = 1
-		if s.Scope == ScopeShared && scope != ScopeShared && scope != "" {
-			s.ScopeWeight = digestSharedWeight
-		}
-		s.UnusedDays = ix.unusedDays(s.At, retrieved.String)
-		s.Decay = ix.decay(s.UnusedDays)
-		s.Score = s.KindWeight * s.ScopeWeight * (1 + math.Log(float64(max(s.Writes, 1)))) * s.Decay
-		all = append(all, s)
+		h.Key = key.String
+		hits = append(hits, h)
 	}
 	if err := rows.Err(); err != nil {
 		return nil, err
+	}
+	rows.Close()
+	whys, err := ix.explain(hits)
+	if err != nil {
+		return nil, err
+	}
+	for _, h := range hits {
+		w := whys[h.ID]
+		s := Scored{Hit: h, Writes: w.Writes, Uses: w.Uses, Heat: w.Heat, Boost: w.Boost}
+		s.KindWeight = digestKindWeight[s.Kind]
+		s.ScopeWeight = 1
+		if s.Scope == ScopeShared && scope != ScopeShared && scope != "" {
+			s.ScopeWeight = ix.Ranking().DigestSharedWeight
+		}
+		s.Score = s.KindWeight * s.ScopeWeight * s.Boost
+		all = append(all, s)
 	}
 	// Newest first on equal score, so a fresh vault reads as it did before.
 	sort.SliceStable(all, func(i, j int) bool {

@@ -255,11 +255,8 @@ func (ix *Index) rescore(q []float32, model string, cands []string, limit int) (
 		return nil, fmt.Errorf("index: vector rescore: %w", err)
 	}
 	defer rows.Close()
-	type scored struct {
-		Hit
-		score float64
-	}
-	var out []scored
+	var hits []Hit
+	var relevance []float64
 	for rows.Next() {
 		var h Hit
 		var key, retrieved sql.NullString
@@ -271,25 +268,25 @@ func (ix *Index) rescore(q []float32, model string, cands []string, limit int) (
 			continue
 		}
 		h.Key = key.String
-		out = append(out, scored{h, dot(q, full) * ix.decay(ix.unusedDays(h.At, retrieved.String))})
+		hits = append(hits, h)
+		relevance = append(relevance, float64(dot(q, full)))
 	}
 	if err := rows.Err(); err != nil {
 		return nil, err
 	}
-	sort.SliceStable(out, func(i, j int) bool {
-		if out[i].score != out[j].score {
-			return out[i].score > out[j].score
-		}
-		return out[i].ID < out[j].ID
-	})
-	if len(out) > limit {
-		out = out[:limit]
+	rows.Close()
+	// A stable order for equal scores, whatever order the rows came in.
+	order := make([]int, len(hits))
+	for i := range order {
+		order[i] = i
 	}
-	hits := make([]Hit, len(out))
-	for i, s := range out {
-		hits[i] = s.Hit
+	sort.Slice(order, func(a, b int) bool { return hits[order[a]].ID < hits[order[b]].ID })
+	sortedHits := make([]Hit, len(hits))
+	sortedRel := make([]float64, len(hits))
+	for i, k := range order {
+		sortedHits[i], sortedRel[i] = hits[k], relevance[k]
 	}
-	return hits, nil
+	return ix.rankByUse(sortedHits, sortedRel, limit)
 }
 
 func normalised(v []float32) []float32 {

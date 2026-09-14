@@ -1,6 +1,6 @@
 ---
 name: membraid
-description: Use when recording, retrieving or maintaining the user's shared memory through membraid (memory_write, memory_search, memory_get, memory_done, or the membraid CLI) - deciding whether something is worth remembering, choosing a kind, key and scope, recording, updating or finishing a task, correcting a memory that is wrong, or dealing with membraid sync, scopes or the vault.
+description: Use when recording, retrieving or maintaining the user's shared memory through membraid (memory_write, memory_search, memory_get, memory_used, memory_done, or the membraid CLI) - deciding whether something is worth remembering, choosing a kind, key and scope, recording, updating or finishing a task, correcting a memory that is wrong, or dealing with membraid sync, scopes or the vault.
 ---
 
 # membraid
@@ -118,6 +118,12 @@ be closed: `memory_done` with its id.
   matches words. The server instructions say which. Either way, if nothing
   relevant comes back, try again: rephrase, use the tool or file name, or
   `memory_get` the key you expect. One miss does not mean memory has nothing.
+- **Say what you used.** When a memory actually changes what you do (you follow
+  a preference, use a project value, rely on an insight), call `memory_used`
+  with its id or key; digest entries without a key show one as `#1a2b3c4d`.
+  That is the signal that ranks useful memories higher for every agent.
+  Memories you only read, or that merely showed up in results, do not count,
+  and reporting them would bury the ones that matter.
 - **Memory can be stale. The code is the ground truth.** If memory says Go 1.25
   and `go.mod` says 1.27, trust `go.mod` - then write the correction under the
   same key so the next agent is not misled.

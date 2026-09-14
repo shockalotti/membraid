@@ -13,6 +13,7 @@ import (
 	"path/filepath"
 	"runtime"
 	"sort"
+	"strconv"
 	"strings"
 	"time"
 
@@ -35,6 +36,7 @@ Usage:
   membraid get KEY                       the live answer for one subject
   membraid history KEY                   what we used to think
   membraid done KEY | --id ID            mark a task finished
+  membraid used KEY | --id ID            tell membraid a memory changed what you did (ranks it higher)
   membraid forget KEY | --id ID          retire a memory with nothing true to replace it
   membraid status [--json]               where you left off + what agents learned
   membraid context [--format claude]     the short digest an agent starts a session with
@@ -67,10 +69,15 @@ Sync settings (membraid config set ...):
   auto_sync          true   push shortly after writes, pull when a session starts
   push_delay_sec     60     wait for writes to go quiet before pushing
   pull_interval_min  15     how stale a scheduled pull may get
-  halflife_days      30     days unused before a memory's search rank halves
   embeddings         off    search by meaning: off, ollama or builtin (local only)
   embed_model        (default)  Ollama model; default embeddinggemma:300m-qat-q4_0
   host               (hostname)  names this machine's log file
+
+Ranking settings (also membraid config set; stored in the vault, so every machine ranks alike):
+  halflife_days          30   days for a write's or a use's weight to halve
+  frequency_boost        1    how much repeated use lifts a memory (0 to 5; 0 = only keeps it fresh)
+  digest_items           12   known facts a session starts with
+  digest_shared_weight   0.7  weight of shared memories against the project's own in the digest
 
 The vault is plain text in a git repo you own: every memory is a line in .hot/writes-*.jsonl.
 `
@@ -272,6 +279,14 @@ func run(args []string) error {
 			}
 			for _, h := range hits {
 				fmt.Printf("%-14s %-16s %-12s %s  [id %s]\n", h.Kind, dash(h.Key), h.Scope, h.Content, h.ID)
+				if *explain && h.Why != nil {
+					last := h.Why.LastUsed
+					if last == "" {
+						last = "never"
+					}
+					fmt.Printf("    score %.3f = relevance %.3f x boost %.2f   (heat %.2f from %d write%s and %.1f uses, last %s)\n",
+						h.Why.Score, h.Why.Relevance, h.Why.Boost, h.Why.Heat, h.Why.Writes, plural(h.Why.Writes), h.Why.Uses, last)
+				}
 			}
 			return nil
 		})
@@ -311,8 +326,31 @@ func run(args []string) error {
 				}
 			}
 			_ = ix.Touch(touched)
+			// Asking for a subject by key is using it.
+			_, _ = ix.MarkUsed(touched, *source, 1)
 			if !found {
 				fmt.Println("no answer for that subject")
+			}
+			return nil
+		})
+
+	case "used":
+		return withIndex(v, cfg, func(ix *index.Index) error {
+			var ids []string
+			if *id != "" {
+				ids = append(ids, *id)
+			}
+			if len(ids) == 0 && fs.NArg() == 0 {
+				return fmt.Errorf("used needs a key or --id: the memory that changed what you did")
+			}
+			refs, missing := useRefs(ix, scope.Resolve(*scopeFlag), ids, fs.Args())
+			used, err := ix.MarkUsed(refs, *source, 1)
+			if err != nil {
+				return err
+			}
+			fmt.Printf("marked %d memor%s used\n", len(used), map[bool]string{true: "y", false: "ies"}[len(used) == 1])
+			if len(missing) > 0 || len(used) < len(refs) {
+				fmt.Fprintf(os.Stderr, "membraid: some did not match a current memory: %s\n", strings.Join(append(missing, *id), " "))
 			}
 			return nil
 		})
@@ -368,7 +406,10 @@ func run(args []string) error {
 			for src, n := range in.WritesBySource {
 				fmt.Printf("  %-14s %d\n", src, n)
 			}
-			fmt.Printf("%d current memories, %d never used by an agent\n", in.Current, in.NeverUsed)
+			fmt.Printf("%d current memories, %d never retrieved by an agent\n", in.Current, in.NeverUsed)
+			for src, n := range in.UsesBySource {
+				fmt.Printf("  used by %-12s %.0f\n", src, n)
+			}
 			return nil
 		})
 
@@ -536,7 +577,7 @@ func run(args []string) error {
 			sc := scope.Resolve(*scopeFlag)
 			text, err = buildContext(ix, sc, scope.Name(""))
 			if *explain {
-				why, _ = ix.Digest(sc, digestItems)
+				why, _ = ix.Digest(sc, ix.Ranking().DigestItems)
 			}
 			return err
 		})
@@ -560,14 +601,14 @@ func run(args []string) error {
 		}
 		fmt.Print(text)
 		if *explain {
-			fmt.Println("\n### Why these: score = kind x scope x (1 + ln writes) x decay")
+			fmt.Println("\n### Why these: score = kind x scope x boost(heat); heat = writes + uses, each halving every halflife")
 			for _, s := range why {
 				content := strings.Join(strings.Fields(s.Content), " ")
 				if len(content) > 70 {
 					content = content[:67] + "..."
 				}
-				fmt.Printf("%6.3f  %-13s kind %.1f  scope %.1f  writes %-2d unused %5.1fd  decay %.2f  %s\n",
-					s.Score, s.Kind, s.KindWeight, s.ScopeWeight, s.Writes, s.UnusedDays, s.Decay, content)
+				fmt.Printf("%6.3f  %-13s kind %.1f  scope %.1f  writes %-2d uses %4.1f  heat %5.2f  boost %.2f  %s\n",
+					s.Score, s.Kind, s.KindWeight, s.ScopeWeight, s.Writes, s.Uses, s.Heat, s.Boost, content)
 			}
 		}
 		return nil
@@ -686,6 +727,7 @@ func run(args []string) error {
 
 	case "config":
 		if fs.NArg() == 0 && *jsonOut {
+			rank := loadRanking(v, cfg)
 			model := cfg.EmbedModel
 			if model == "" {
 				model = embed.DefaultOllamaModel
@@ -696,7 +738,9 @@ func run(args []string) error {
 			}
 			return json.NewEncoder(os.Stdout).Encode(map[string]any{
 				"auto_sync": cfg.AutoSync, "push_delay_sec": cfg.PushDelaySec, "pull_interval_min": cfg.PullIntervalMin,
-				"halflife_days": cfg.HalflifeDays, "embeddings": embeddings, "embed_model": model,
+				"halflife_days": rank.HalflifeDays, "frequency_boost": rank.FrequencyBoost,
+				"digest_items": rank.DigestItems, "digest_shared_weight": rank.DigestSharedWeight,
+				"embeddings": embeddings, "embed_model": model,
 				"host": cfg.HostName(), "path": config.Path(),
 			})
 		}
@@ -707,6 +751,14 @@ func run(args []string) error {
 		}
 		if fs.Arg(0) != "set" || fs.NArg() != 3 {
 			return fmt.Errorf("usage: membraid config set KEY VALUE")
+		}
+		// Ranking settings follow the user: they go in the vault and sync.
+		if config.IsShared(fs.Arg(1)) {
+			if err := config.SetShared(v.HotPath(), wirelog.SafeHost(cfg.HostName()), fs.Arg(1), fs.Arg(2), time.Now()); err != nil {
+				return err
+			}
+			fmt.Printf("%s = %s (in the vault: every machine, after its next sync)\n", fs.Arg(1), fs.Arg(2))
+			return nil
 		}
 		if err := cfg.Set(fs.Arg(1), fs.Arg(2)); err != nil {
 			return err
@@ -799,9 +851,6 @@ func sweepSummary(r *index.SweepReport) string {
 		r.Current, r.StaleRows, index.SweepUnusedDays, r.StaleTasks, index.StaleTaskDays)
 }
 
-// digestItems is how many known facts a session starts with.
-const digestItems = 12
-
 func buildContext(ix *index.Index, sc, name string) (string, error) {
 	const maxItem = 240
 	clip := func(s string) string {
@@ -824,7 +873,7 @@ func buildContext(ix *index.Index, sc, name string) (string, error) {
 		return "", err
 	}
 	stale, _ := ix.StaleTasks(sc)
-	learned, err := ix.Digest(sc, digestItems)
+	learned, err := ix.Digest(sc, ix.Ranking().DigestItems)
 	if err != nil {
 		return "", err
 	}
@@ -868,6 +917,9 @@ func buildContext(ix *index.Index, sc, name string) (string, error) {
 			key := ""
 			if h.Key != "" {
 				key = " " + h.Key
+			} else if len(h.ID) >= 8 {
+				// An id to report use with: memory_used takes it.
+				key = " #" + h.ID[:8]
 			}
 			fmt.Fprintf(&b, "- [%s%s] %s\n", h.Kind, key, clip(h.Content))
 		}
@@ -910,7 +962,7 @@ func openIndex(v *vault.Vault, cfg config.Config) (*index.Index, func(), error) 
 		lg.Close()
 		return nil, nil, err
 	}
-	ix.SetHalflife(cfg.HalflifeDays)
+	ix.SetRanking(loadRanking(v, cfg))
 	if _, err := ix.ImportAll(); err != nil {
 		fmt.Fprintln(os.Stderr, "membraid: could not import from the wire log:", err)
 	}
@@ -1191,4 +1243,65 @@ func day(ts string) string {
 		return "-"
 	}
 	return ts[:10]
+}
+
+// loadRanking is the ranking in the vault's shared settings, so every machine
+// ranks alike. A halflife set on this machine before ranking settings moved to
+// the vault still applies until the vault has one.
+func loadRanking(v *vault.Vault, cfg config.Config) index.Ranking {
+	r := index.DefaultRanking()
+	if cfg.HalflifeDays > 0 {
+		r.HalflifeDays = float64(cfg.HalflifeDays)
+	}
+	vals, err := config.LoadShared(v.HotPath())
+	if err != nil {
+		fmt.Fprintln(os.Stderr, "membraid: shared settings:", err)
+		return r.Clamped()
+	}
+	float := func(key string, into *float64) {
+		if s, ok := vals[key]; ok {
+			if f, err := strconv.ParseFloat(s, 64); err == nil {
+				*into = f
+			}
+		}
+	}
+	float("halflife_days", &r.HalflifeDays)
+	float("frequency_boost", &r.FrequencyBoost)
+	float("digest_shared_weight", &r.DigestSharedWeight)
+	if s, ok := vals["digest_items"]; ok {
+		if n, err := strconv.Atoi(s); err == nil {
+			r.DigestItems = n
+		}
+	}
+	return r.Clamped()
+}
+
+// useRefs turns what an agent names as used into ids MarkUsed resolves: ids
+// or id prefixes (a digest shows "#1a2b3c4d"), and keys, which name the current
+// memory of that key in the scope or, failing that, in shared.
+func useRefs(ix *index.Index, sc string, ids, keys []string) (refs, missing []string) {
+	for _, id := range ids {
+		if id = strings.TrimPrefix(strings.TrimSpace(id), "#"); id != "" {
+			refs = append(refs, id)
+		}
+	}
+	kinds := []string{index.KindPreference, index.KindProjectParam, index.KindInsight, index.KindTaskState}
+	for _, k := range keys {
+		found := false
+		for _, s := range []string{sc, index.ScopeShared} {
+			for _, kind := range kinds {
+				if m, err := ix.Current(s, kind, k); err == nil && m != nil {
+					refs = append(refs, m.ID)
+					found = true
+				}
+			}
+			if found {
+				break
+			}
+		}
+		if !found {
+			missing = append(missing, k)
+		}
+	}
+	return refs, missing
 }

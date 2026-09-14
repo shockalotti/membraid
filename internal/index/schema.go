@@ -6,7 +6,7 @@
 // may not.
 package index
 
-const schemaVersion = 3
+const schemaVersion = 4
 
 const schemaSQL = `
 CREATE TABLE IF NOT EXISTS memories (
@@ -63,6 +63,31 @@ CREATE TABLE IF NOT EXISTS log_offsets (
 CREATE TABLE IF NOT EXISTS meta (
   key   TEXT PRIMARY KEY,
   value TEXT NOT NULL
+);
+
+-- Use heat (schema 4). A subject is "k" + scope, kind and key joined by \x1f for
+-- a keyed memory, so heat survives restatement, or "i" + \x1f + id otherwise.
+-- heat_local is this machine's, updated on every use; heat_remote holds each
+-- other machine's latest checkpointed value. Heat halves every halflife from at.
+CREATE TABLE IF NOT EXISTS heat_local (
+  subject TEXT PRIMARY KEY,
+  heat    REAL NOT NULL,
+  at      TEXT NOT NULL
+);
+CREATE TABLE IF NOT EXISTS heat_remote (
+  subject TEXT NOT NULL,
+  host    TEXT NOT NULL,
+  heat    REAL NOT NULL,
+  at      TEXT NOT NULL,
+  PRIMARY KEY (subject, host)
+);
+-- Uses by agent per UTC day, per machine (this one included), for insights.
+CREATE TABLE IF NOT EXISTS use_counts (
+  host   TEXT NOT NULL,
+  day    TEXT NOT NULL,
+  source TEXT NOT NULL,
+  n      REAL NOT NULL,
+  PRIMARY KEY (host, day, source)
 );
 
 CREATE TABLE IF NOT EXISTS scopes (
