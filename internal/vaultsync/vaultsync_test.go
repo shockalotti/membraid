@@ -8,6 +8,8 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/shockalotti/membraid/internal/vault"
 )
 
 // isolate git from the developer's global config, so the fallback identity
@@ -261,5 +263,26 @@ func TestConflictsMembraidCannotSettleStillStop(t *testing.T) {
 				}
 			}
 		})
+	}
+}
+
+// A note membraid marked no longer current is not a draft, but it is still
+// membraid's while its ownership line matches, so a conflict on it settles too.
+func TestStampedNoteConflictSettles(t *testing.T) {
+	isolate(t)
+	a, b := twoMachines(t)
+	const note = "facts/deploy-target.md"
+	stamped := func(status, body string) string {
+		return string(vault.Stamp([]byte("---\ntype: fact\ntitle: Deploy target\nstatus: " + status + "\nkey: deploy.target\n---\n" + body + "\n")))
+	}
+	writeAndSync(t, a, "a", note, stamped("draft", "deploys to railway"))
+	run(t, b, "b")
+	writeAndSync(t, a, "a", note, stamped("deprecated", "No longer current"))
+	os.WriteFile(filepath.Join(b, note), []byte(stamped("draft", "deploys to fly.io")), 0o600)
+	if r := run(t, b, "b"); !r.Pulled {
+		t.Fatalf("b must settle a conflict between two untouched notes: %+v", r)
+	}
+	if got, _ := os.ReadFile(filepath.Join(b, note)); string(got) != stamped("deprecated", "No longer current") {
+		t.Errorf("want the remote's note, got:\n%s", got)
 	}
 }

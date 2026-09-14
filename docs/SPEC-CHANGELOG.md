@@ -8,6 +8,37 @@ next agent in the loop.
 
 ---
 
+## v1.17.1 (notes are a view of memory)
+
+**The concept mirror is not built, by decision (§5.2, §7.3, §4.4).** The spec
+reads distilled notes back into search, with a trust tier: drafts ranked lower,
+promotion to `stable`, deprecated and archived notes excluded. None of it was
+built, yet the docs told people to edit, promote or delete notes, which
+changed nothing agents see. Following the design premise that almost nobody
+curates, notes are now a readable view: agents read memories, and correcting
+what they know means writing the memory again. The docs, the vault's index.md
+and every note's footer say so.
+
+**The note bugs the review found are fixed without the mirror:**
+
+- **Ownership travels with the note.** Whether membraid may rewrite a note was a
+  hash kept only in the writing machine's index, so a note stopped updating on
+  every other machine and after any rebuild. Each note now ends its frontmatter
+  with a `membraid:` line: a SHA-256 of the rest of the file, so any machine can
+  tell an untouched note from an edited one. Notes written before this still use
+  the local hash until membraid next rewrites them.
+- **A deleted note stays deleted.** A subject whose memories are linked to a note
+  that no longer exists under any name is not written again.
+- **A retired subject's note says so.** When every memory on a keyed subject is
+  forgotten or finished, its note is rewritten `deprecated`, stating at the top
+  that the last answer is no longer current (§6.2, cold deprecation).
+- **One unreadable note no longer stops distillation.** A note whose frontmatter
+  cannot be parsed is skipped and named, and never overwritten.
+- **Same-named projects no longer share a note.** When a new note's path already
+  holds another subject's note, the project folder carries the scope id too.
+
+---
+
 ## v1.17 (implementation amendments from the spec review)
 
 A review of every section against the code found places where the build broke

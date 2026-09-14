@@ -157,9 +157,12 @@ func run(args []string) error {
 		return nil
 
 	case "ls":
-		cs, err := v.List()
+		cs, unreadable, err := v.List()
 		if err != nil {
 			return err
+		}
+		for _, p := range unreadable {
+			fmt.Fprintf(os.Stderr, "membraid: %s: its frontmatter cannot be read, so it is skipped\n", p)
 		}
 		if len(cs) == 0 {
 			fmt.Println("no concepts yet")
@@ -870,8 +873,17 @@ func runDistill(v *vault.Vault, ix *index.Index) (*distill.Result, error) {
 
 func distillSummary(r *distill.Result) string {
 	s := fmt.Sprintf("distill: %d new note%s, %d updated", r.Created, plural(r.Created), r.Updated)
+	if r.Retired > 0 {
+		s += fmt.Sprintf(", %d marked no longer current", r.Retired)
+	}
 	if r.Kept > 0 {
-		s += fmt.Sprintf(", %d edited by you and left alone", r.Kept)
+		s += fmt.Sprintf(", %d edited by hand and left alone", r.Kept)
+	}
+	if r.LeftDeleted > 0 {
+		s += fmt.Sprintf(", %d deleted by hand and not written again", r.LeftDeleted)
+	}
+	if n := len(r.Unreadable); n > 0 {
+		s += fmt.Sprintf(", %d with unreadable frontmatter skipped (%s)", n, strings.Join(r.Unreadable, ", "))
 	}
 	return s
 }

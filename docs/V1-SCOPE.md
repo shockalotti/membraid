@@ -50,7 +50,7 @@ That is not a concession, it is the product:
 | Keyed supersession - a newer fact retires the older one | no | **yes** |
 | Ranking by use - what agents rely on rises, what nobody uses sinks | no | **yes** |
 | Distillation - a subject seen repeatedly becomes one concept | no | **yes** |
-| Sweep - stale material archives itself, store stays bounded | no | **partly**: sweep counts memories unused for 90 days and flags stale tasks; nothing is archived yet, because archival acts on concept notes, which never reach the index (see the concept-mirror loose end) |
+| Sweep - stale material archives itself, store stays bounded | no | **partly**: sweep counts memories unused for 90 days and flags stale tasks; nothing is archived yet, because archival acts on concept notes, which never reach the index (the concept mirror is deliberately deferred, below) |
 | Files you can read, grep, diff and delete | no | **yes** |
 | Promotion of `draft` to `stable` | **yes** | supported, never required |
 
@@ -85,7 +85,7 @@ next starts; the goal is the **usable** line below, not the bottom of the table.
 |---|---|---|---|
 | 1 | Wire log | §3.4, §5.3 | **done** - the only non-rebuildable artifact, so it is built and tested first |
 | 2 | Vault: markdown, frontmatter, `init` | §4 | **done** as a layout: `init`, `index.md`, `log.md`, and a concept-file writer. Memories themselves live in the append-only log in `.hot/`; nothing writes a concept file until distillation (slice 9), so readable per-subject files do not exist yet |
-| 3 | Hot index: tables + FTS5 | §5.1, §5.2 | **done for §5.1** - search is what makes one brain feel like one brain. The §5.2 concept mirror has its tables but is never filled: distilled or edited notes do not reach search (loose end) |
+| 3 | Hot index: tables + FTS5 | §5.1, §5.2 | **done for §5.1** - search is what makes one brain feel like one brain. The §5.2 concept mirror has its tables but is never filled: distilled or edited notes do not reach search, by decision (deferred, below) |
 | 4 | **Keyed supersession** | §6.2, §6.3 | **done** - without it the shared brain holds five contradictory opinions |
 | 5 | CLI: `write`, `search`, `get` | §10 | **done** - the universal adapter; anything that can shell out is connected |
 | 6 | stdio MCP server | §10 | **done** - now six tools: write, search, get, used, done, forget |
@@ -165,6 +165,7 @@ does not exist on day one, and each is cheap to add when it does.
 | Obsidian watcher | §16 M9 | The `reindex`-after-edit workflow to annoy someone |
 | Vector search | §16 M11 | Decided, no longer deferred: pure Go over the existing SQLite index, optional local embeddings (EmbeddingGemma via Ollama, or built-in all-MiniLM), vector-only when on. Measurements and rejected alternatives in [SEARCH-EVALUATION.md](SEARCH-EVALUATION.md) |
 | Embedding speed on low-end machines | - | Deferred by choice. The embedding bake-off picks a default model on a fast laptop first; the weakest supported machine (e.g. a 4-core minipc) is tested before that model is recommended to anyone |
+| Concept mirror, vault search and the curated trust tier (§5.2, §7.3, §4.4: draft penalty, promotion, `stale_after`) | §5.2, §7.3 | Decided in v1.17.1: notes are a readable view of memory, not a second source of it. Agents read memories; notes are kept current, marked when retired, left alone when edited, and not rewritten when deleted. Revisit if daily use shows people editing notes to correct what agents know |
 | Cloud embedding APIs (Gemini, Voyage, Mistral, Jina and similar) | - | Deferred by choice: memory stays on the user's own machines. If ever added, strictly opt-in, with a clear warning that memory content leaves the machine |
 | Folders as knowledge sources (indexing Obsidian vaults, docs or notes folders for search) | - | Dropped for now, on purpose: searching documents people wrote is a different problem from sharing what agents learn, agents can already read files and use filesystem or Obsidian MCP servers, and indexing arbitrary folders is the riskiest thing membraid could do with secrets. Instead, a memory records where knowledge lives ("the API specs are in ~/Work/specs/api"), and the skill tells agents to write those. Revisit only if daily use shows agents repeatedly pointed at the same outside folders by hand |
 

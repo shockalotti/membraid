@@ -130,11 +130,20 @@ Each note is a `draft` holding the current answer and a History list of every
 earlier answer, with when and which agent wrote it. It happens every 30
 minutes on its own; `membraid distill` runs it now.
 
-**The notes are yours to edit.** membraid rewrites a note only while it is
-exactly what membraid last wrote. Once you change one (fix it, add to it, set
-`status: stable`, move it to another folder), it is never overwritten again,
-though new memories on the same subject are still linked to it. Your edits sync
-to your other machines like everything else in the vault.
+**Notes are a view, not a second memory.** Agents read the memories, never the
+notes, so editing a note does not change what they know. To correct something,
+write the right answer with the same key (`membraid write`, or *Correct* in the
+widget), and the note follows on the next pass. What membraid does with notes:
+
+- It keeps an untouched note current. Every note carries a `membraid:` line in
+  its frontmatter, a fingerprint of the rest of the file, so every machine can
+  tell an untouched note from an edited one.
+- It leaves a note you edit alone, and never writes a note you delete again.
+- When every memory on a subject is forgotten or finished, it marks the note
+  `deprecated` and says at the top that the answer is no longer current.
+- It skips a note whose frontmatter it cannot read (an Obsidian `[[link]]` in a
+  list field, say) and says which, instead of stopping.
+- Two projects whose folders share a name get separate note folders.
 
 ## Moving projects around
 

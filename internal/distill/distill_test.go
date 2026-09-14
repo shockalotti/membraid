@@ -160,3 +160,128 @@ func TestNotesCarryTheFooterSyncRecognises(t *testing.T) {
 		t.Errorf("a distilled note must carry the footer and draft status sync looks for:\n%s", body)
 	}
 }
+
+// Ownership travels in the note, so a machine that did not write a note, or an
+// index rebuilt from the log, still updates it.
+func TestNotesStayMembraidsOnEveryMachine(t *testing.T) {
+	ix, v, nextDay := setup(t)
+	ix.Write(index.Memory{Kind: index.KindPreference, Key: "pkg.manager", Content: "uses npm", Source: "x"})
+	ix.Write(index.Memory{Kind: index.KindPreference, Key: "pkg.manager", Content: "uses pnpm", Source: "x"})
+	if r, _ := Run(ix, v, nil); r.Created != 1 {
+		t.Fatalf("want a note, got %+v", r)
+	}
+	if !strings.Contains(read(t, v, "preferences/pkg-manager.md"), "\nmembraid: ") {
+		t.Error("a note must carry its ownership line")
+	}
+
+	other, err := index.Open(filepath.Join(t.TempDir(), "other.db"), nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { other.Close() })
+	nextDay()
+	other.Write(index.Memory{Kind: index.KindPreference, Key: "pkg.manager", Content: "uses npm", Source: "x"})
+	other.Write(index.Memory{Kind: index.KindPreference, Key: "pkg.manager", Content: "uses bun", Source: "y"})
+	r, err := Run(other, v, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if r.Updated != 1 || r.Kept != 0 {
+		t.Errorf("another index must recognise membraid's note and update it: %+v", r)
+	}
+	if !strings.Contains(read(t, v, "preferences/pkg-manager.md"), "uses bun (current)") {
+		t.Error("the note must show the other machine's current answer")
+	}
+}
+
+// A note a person deleted stays deleted, even as its subject changes.
+func TestDeletedNoteIsNotWrittenAgain(t *testing.T) {
+	ix, v, nextDay := setup(t)
+	ix.Write(index.Memory{Kind: index.KindInsight, Key: "ci.flaky", Content: "e2e flakes", Source: "x"})
+	ix.Write(index.Memory{Kind: index.KindInsight, Key: "ci.flaky", Content: "e2e flakes on cold caches", Source: "x"})
+	Run(ix, v, nil)
+	os.Remove(filepath.Join(v.Root(), "facts/ci-flaky.md"))
+	nextDay()
+	ix.Write(index.Memory{Kind: index.KindInsight, Key: "ci.flaky", Content: "fixed by warming caches", Source: "x"})
+	r, err := Run(ix, v, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if r.LeftDeleted != 1 || r.Created != 0 {
+		t.Errorf("a deleted note must not be written again: %+v", r)
+	}
+	if _, err := os.Stat(filepath.Join(v.Root(), "facts/ci-flaky.md")); err == nil {
+		t.Error("the deleted note came back")
+	}
+}
+
+// When every memory on a subject is forgotten, its note stops claiming the
+// last answer is current.
+func TestForgottenSubjectsNoteIsMarkedNoLongerCurrent(t *testing.T) {
+	ix, v, nextDay := setup(t)
+	ix.Write(index.Memory{Kind: index.KindProjectParam, Key: "deploy.target", Content: "deploys to fly.io", Scope: "g1", Source: "x"})
+	ix.Write(index.Memory{Kind: index.KindProjectParam, Key: "deploy.target", Content: "deploys to railway", Scope: "g1", Source: "x"})
+	names := map[string]string{"g1": "api"}
+	Run(ix, v, names)
+	nextDay()
+	if _, err := ix.Forget("g1", "deploy.target", ""); err != nil {
+		t.Fatal(err)
+	}
+	r, err := Run(ix, v, names)
+	if err != nil {
+		t.Fatal(err)
+	}
+	body := read(t, v, "projects/api/deploy-target.md")
+	if r.Retired != 1 || !strings.Contains(body, "status: deprecated") || !strings.Contains(body, "No longer current") || strings.Contains(body, "(current)") {
+		t.Errorf("the note must be marked no longer current: %+v\n%s", r, body)
+	}
+	if again, _ := Run(ix, v, names); again.Retired != 0 || again.Updated != 0 {
+		t.Errorf("a second pass must change nothing: %+v", again)
+	}
+}
+
+// A note whose frontmatter will not parse is skipped, and every other subject
+// still distills.
+func TestUnreadableNoteDoesNotStopDistillation(t *testing.T) {
+	ix, v, _ := setup(t)
+	os.WriteFile(filepath.Join(v.Root(), "facts", "hand-written.md"), []byte("---\ntype: fact\ntags: memory\n---\n\nMy own note.\n"), 0o600)
+	ix.Write(index.Memory{Kind: index.KindPreference, Key: "editor.theme", Content: "dark", Source: "x"})
+	ix.Write(index.Memory{Kind: index.KindPreference, Key: "editor.theme", Content: "dark, high contrast", Source: "x"})
+	r, err := Run(ix, v, nil)
+	if err != nil {
+		t.Fatalf("an unreadable note must not stop distillation: %v", err)
+	}
+	if r.Created != 1 || len(r.Unreadable) != 1 || r.Unreadable[0] != "facts/hand-written.md" {
+		t.Errorf("want the other subject written and the bad note named: %+v", r)
+	}
+	if got := read(t, v, "facts/hand-written.md"); !strings.Contains(got, "My own note.") {
+		t.Error("the unreadable note must be left as it was")
+	}
+}
+
+// Two projects whose folders share a name get a note each, and later passes do
+// not flip one file between them.
+func TestSameNamedProjectsGetTheirOwnNotes(t *testing.T) {
+	ix, v, _ := setup(t)
+	names := map[string]string{"g1": "api", "g2": "api"}
+	for _, sc := range []string{"g1", "g2"} {
+		ix.Write(index.Memory{Kind: index.KindProjectParam, Key: "deploy.target", Content: "first " + sc, Scope: sc, Source: "x"})
+		ix.Write(index.Memory{Kind: index.KindProjectParam, Key: "deploy.target", Content: "deploys " + sc, Scope: sc, Source: "x"})
+	}
+	r, err := Run(ix, v, names)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if r.Created != 2 || len(r.Paths) != 2 || r.Paths[0] == r.Paths[1] {
+		t.Fatalf("each project must get its own note: %+v", r)
+	}
+	for _, p := range r.Paths {
+		body := read(t, v, p)
+		if strings.Contains(p, "g2") != strings.Contains(body, "deploys g2") {
+			t.Errorf("%s holds the wrong project's answer:\n%s", p, body)
+		}
+	}
+	if again, _ := Run(ix, v, names); again.Created+again.Updated != 0 {
+		t.Errorf("a second pass must not churn the notes: %+v", again)
+	}
+}

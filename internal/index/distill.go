@@ -17,6 +17,7 @@ type SubjectRow struct {
 	ID, Content, Source, At, SessionRef string
 	Current                             bool
 	Concept                             string // source_concept, empty if unlinked
+	Until                               string // valid_to; empty while current
 }
 
 // Subject is a keyed subject with its whole history, newest first.
@@ -154,4 +155,39 @@ func (ix *Index) ConceptWritten(path, hash string) error {
 
 func (ix *Index) WrittenConcept(path string) string {
 	return ix.metaGet("concept_hash:" + path)
+}
+
+// RetiredSubjects returns keyed subjects that have a note but no live answer
+// any more: every row was forgotten, finished or closed. Their note still shows
+// the last answer as current, so distillation marks it no longer current
+// instead of leaving it to mislead whoever reads the vault (SPEC 6.2, cold
+// deprecation).
+func (ix *Index) RetiredSubjects() ([]Subject, error) {
+	rows, err := ix.db.Query(`
+		SELECT m.scope, m.kind, m.key, m.id, m.content, m.source, m.valid_from,
+		       COALESCE(m.session_ref, ''), COALESCE(m.valid_to, ''), COALESCE(m.source_concept, '')
+		  FROM memories m
+		 WHERE m.key IS NOT NULL AND m.kind <> ?
+		   AND NOT EXISTS (SELECT 1 FROM memories c
+		                    WHERE c.scope = m.scope AND c.kind = m.kind AND c.key = m.key AND c.valid_to IS NULL)
+		   AND EXISTS (SELECT 1 FROM memories l
+		                WHERE l.scope = m.scope AND l.kind = m.kind AND l.key = m.key AND COALESCE(l.source_concept, '') <> '')
+		 ORDER BY m.scope, m.kind, m.key, m.valid_from DESC`, KindTaskState)
+	if err != nil {
+		return nil, fmt.Errorf("index: retired subjects: %w", err)
+	}
+	defer rows.Close()
+	var out []Subject
+	for rows.Next() {
+		var scope, kind, key string
+		var r SubjectRow
+		if err := rows.Scan(&scope, &kind, &key, &r.ID, &r.Content, &r.Source, &r.At, &r.SessionRef, &r.Until, &r.Concept); err != nil {
+			return nil, err
+		}
+		if n := len(out); n == 0 || out[n-1].Scope != scope || out[n-1].Kind != kind || out[n-1].Key != key {
+			out = append(out, Subject{Scope: scope, Kind: kind, Key: key})
+		}
+		out[len(out)-1].Rows = append(out[len(out)-1].Rows, r)
+	}
+	return out, rows.Err()
 }

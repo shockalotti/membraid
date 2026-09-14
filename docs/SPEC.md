@@ -678,6 +678,13 @@ CREATE VIRTUAL TABLE memories_fts USING fts5(content);
 
 ### 5.2 Concept mirror table
 
+> **Implementation note (v1.17.1).** Not built, by decision. Notes are a
+> readable view of memory rather than a second source of it: agents read hot
+> rows, and distillation keeps notes current from them. Ownership is a
+> `membraid:` frontmatter line holding a hash of the rest of the note, so every
+> machine and every rebuilt index tells an untouched note from an edited one.
+> See V1-SCOPE, deferred, and the v1.17.1 changelog.
+
 Vault concepts are mirrored into the hot index so vault search does not require
 a bundle scan. **Two tables, two lifecycles:** `memories` is working state;
 `concepts` is a read mirror of vault frontmatter, rebuilt wholesale by
@@ -1128,6 +1135,9 @@ it, so the sweep report resets the very clock it just measured and the second
 run finds nothing. Retrieval refreshes; inspection does not.
 
 ### 7.3 Vault search
+
+> **Implementation note (v1.17.1).** Not built: notes are not searched, since
+> they are generated from the memories search already covers (see §5.2 note).
 
 Vault search runs against the `concepts` mirror table (FTS over
 title/summary/excerpt). No bundle scans. The vault is not a search grid; it is

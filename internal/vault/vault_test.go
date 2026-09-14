@@ -126,7 +126,7 @@ func TestListSkipsReservedAndHotDir(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(v.HotPath(), "writes-2026-09.jsonl"), []byte("{}\n"), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	got, err := v.List()
+	got, _, err := v.List()
 	if err != nil {
 		t.Fatal(err)
 	}

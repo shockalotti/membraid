@@ -9,6 +9,8 @@ package vault
 
 import (
 	"bytes"
+	"crypto/sha256"
+	"encoding/hex"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -108,15 +110,16 @@ func (v *Vault) Init() error {
 			return fmt.Errorf("vault: create %s: %w", d, err)
 		}
 	}
-	readme := "# Memory\n\nAgent memory, stored as plain markdown. Every file here is\n" +
-		"readable, greppable and editable by hand - that is the point.\n\n" +
-		"- Folders are for your benefit; `type` in frontmatter is what routes a note.\n" +
-		"- `status: draft` means an agent wrote it and nobody has confirmed it.\n" +
-		"  Change it to `stable` if it is right. Delete the file if it is wrong.\n" +
-		"- `scope: shared` makes a note surface in every project.\n" +
-		"- `log.md` is a running digest of what the engine changed.\n" +
-		"- `.hot/` is engine bookkeeping. Leave it alone.\n\n" +
-		"Nothing here needs tending. Tending it just makes it better.\n"
+	readme := "# Memory\n\nAgent memory, stored as plain text you can read and grep.\n\n" +
+		"- `.hot/` holds the memories themselves, one log per machine. Leave it alone.\n" +
+		"- The notes in the other folders are readable views membraid writes from those\n" +
+		"  memories: the current answer on a subject, and its history.\n" +
+		"- Agents read the memories, not these notes, so editing a note does not change\n" +
+		"  what they know. To correct something, write the right answer with the same\n" +
+		"  key (`membraid write`, or Correct in the widget). A note you edit is left alone,\n" +
+		"  and one you delete is not written again.\n" +
+		"- `log.md` is a running digest of what the engine changed.\n\n" +
+		"Nothing here needs tending.\n"
 	if err := os.WriteFile(filepath.Join(v.root, "index.md"), []byte(readme), 0o600); err != nil {
 		return err
 	}
@@ -236,9 +239,12 @@ func (v *Vault) Read(rel string) (*Concept, error) {
 }
 
 // List walks every concept in the vault, skipping the wire log and the two
-// reserved files. Sorted for deterministic output.
-func (v *Vault) List() ([]*Concept, error) {
+// reserved files. Sorted for deterministic output. A note whose frontmatter
+// cannot be read is left out and named in unreadable rather than failing the
+// whole walk: one hand-edited file must not stop everything that reads the vault.
+func (v *Vault) List() ([]*Concept, []string, error) {
 	var out []*Concept
+	var unreadable []string
 	err := filepath.WalkDir(v.root, func(p string, d os.DirEntry, err error) error {
 		if err != nil {
 			return err
@@ -263,16 +269,18 @@ func (v *Vault) List() ([]*Concept, error) {
 		}
 		c, perr := Parse(rel, raw)
 		if perr != nil {
-			return perr
+			unreadable = append(unreadable, rel)
+			return nil
 		}
 		out = append(out, c)
 		return nil
 	})
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 	sort.Slice(out, func(i, j int) bool { return out[i].Path < out[j].Path })
-	return out, nil
+	sort.Strings(unreadable)
+	return out, unreadable, nil
 }
 
 // Slug turns a title into a human-meaningful filename. No timestamps, no
@@ -320,4 +328,36 @@ func (v *Vault) AppendLog(line string) error {
 	body := strings.TrimPrefix(string(existing), header)
 	entry := fmt.Sprintf("- %s %s\n", time.Now().UTC().Format("2006-01-02"), line)
 	return os.WriteFile(p, []byte(header+entry+body), 0o600)
+}
+
+var stampLine = regexp.MustCompile(`(?m)^membraid: ([0-9a-f]{64})\n`)
+
+// Stamp adds membraid's ownership line to a rendered note, as its last
+// frontmatter field: a SHA-256 of the note without that line. Any change a
+// person makes anywhere in the file breaks the match, and any machine can check
+// it without having written the note.
+func Stamp(note []byte) []byte {
+	s := string(note)
+	if !strings.HasPrefix(s, "---\n") {
+		return note
+	}
+	end := strings.Index(s[4:], "\n---\n")
+	if end < 0 {
+		return note
+	}
+	at := 4 + end + 1
+	sum := sha256.Sum256(note)
+	return []byte(s[:at] + "membraid: " + hex.EncodeToString(sum[:]) + "\n" + s[at:])
+}
+
+// Owned reports whether a note still carries a matching ownership line: it is
+// exactly as membraid wrote it, and membraid may rewrite it.
+func Owned(raw []byte) bool {
+	loc := stampLine.FindSubmatchIndex(raw)
+	if loc == nil {
+		return false
+	}
+	without := append(append([]byte{}, raw[:loc[0]]...), raw[loc[1]:]...)
+	sum := sha256.Sum256(without)
+	return hex.EncodeToString(sum[:]) == string(raw[loc[2]:loc[3]])
 }

@@ -19,6 +19,8 @@ import (
 	"strconv"
 	"strings"
 	"time"
+
+	"github.com/shockalotti/membraid/internal/vault"
 )
 
 type Options struct {
@@ -253,7 +255,7 @@ func (g *git) settle(files []string) (bool, error) {
 		switch {
 		case f == "log.md":
 			merged = unionLog(remote, local)
-		case strings.HasSuffix(f, ".md") && untouchedDraft(remote) && untouchedDraft(local):
+		case strings.HasSuffix(f, ".md") && untouched(remote) && untouched(local):
 			merged = remote
 		default:
 			return false, nil
@@ -266,6 +268,14 @@ func (g *git) settle(files []string) (bool, error) {
 		}
 	}
 	return true, nil
+}
+
+// untouched reports a note as membraid wrote it: its ownership line matches,
+// whatever its status (a note marked no longer current is not a draft), or,
+// for a note from before notes carried that line, it is still a draft with
+// distillation's footer.
+func untouched(note string) bool {
+	return vault.Owned([]byte(note)) || untouchedDraft(note)
 }
 
 func untouchedDraft(note string) bool {
