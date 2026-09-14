@@ -145,3 +145,37 @@ func TestReindexRebuildsFromTheLog(t *testing.T) {
 		t.Errorf("the old index must be kept, got %v", backups)
 	}
 }
+
+// A search across every project is triage and marks nothing as retrieved.
+func TestSearchEverywhereDoesNotRecordRetrieval(t *testing.T) {
+	bin := buildMembraid(t)
+	vaultDir := filepath.Join(t.TempDir(), "memory")
+	env := cleanEnv("MEMBRAID_CONFIG_DIR="+t.TempDir(), "MEMBRAID_VAULT="+vaultDir)
+	run := func(args ...string) string {
+		t.Helper()
+		cmd := exec.Command(bin, args...)
+		cmd.Env = env
+		out, err := cmd.Output()
+		if err != nil {
+			t.Fatalf("membraid %v: %v", args, err)
+		}
+		return string(out)
+	}
+	run("init", "--vault", vaultDir)
+	run("write", "the staging db is on port 5432", "--scope", "shared")
+	if out := run("search", "staging db", "--scope", "*"); !strings.Contains(out, "5432") {
+		t.Fatalf("search everywhere must find it: %q", out)
+	}
+	var in struct {
+		NeverUsed int `json:"never_used"`
+	}
+	json.Unmarshal([]byte(run("insights", "--json")), &in)
+	if in.NeverUsed != 1 {
+		t.Errorf("a search across every project must not mark results retrieved, never_used = %d", in.NeverUsed)
+	}
+	run("search", "staging db", "--scope", "shared")
+	json.Unmarshal([]byte(run("insights", "--json")), &in)
+	if in.NeverUsed != 0 {
+		t.Errorf("an ordinary search still records retrieval, never_used = %d", in.NeverUsed)
+	}
+}

@@ -117,11 +117,21 @@ func (ix *Index) rankByUse(cands []Hit, relevance []float64, limit int) ([]Hit, 
 	if err != nil {
 		return nil, err
 	}
+	// Relevance leads and use tips close calls. Relevance is taken relative to
+	// the best match, and use can move a score only within a bounded band, so a
+	// heavily used memory cannot outrank a clearly better match. Multiplying raw
+	// relevance by boost could: cosine similarities sit close together, and a
+	// boost of 4 outweighed the difference between a poor match and a good one.
+	best := 1e-9
+	for _, r := range relevance {
+		best = math.Max(best, r)
+	}
 	for i := range cands {
 		w := whys[cands[i].ID]
-		// A negative cosine would invert the boost; nothing that far off matters.
+		// A negative cosine would invert the ordering; nothing that far off matters.
 		w.Relevance = math.Max(relevance[i], 1e-9)
-		w.Score = w.Relevance * w.Boost
+		w.UseFactor = useFactor(w.Boost)
+		w.Score = w.Relevance / best * w.UseFactor
 		cands[i].Why = w
 	}
 	sort.SliceStable(cands, func(i, j int) bool { return cands[i].Why.Score > cands[j].Why.Score })
@@ -250,6 +260,15 @@ var digestKindWeight = map[string]float64{
 // burst of newer insights.
 const digestMinPreferences = 3
 
+// The digest is what agents follow, and following a memory is using it, so a
+// memory in the digest gains heat and stays there. Two limits keep that loop
+// from closing: boost counts only up to digestBoostCap in the digest, and the
+// digestFreshSlots newest memories always get a place.
+const (
+	digestBoostCap   = 2.0
+	digestFreshSlots = 3
+)
+
 // Digest picks the n memories a session should start with, by what is known
 // rather than only by what is newest:
 //
@@ -310,7 +329,7 @@ func (ix *Index) Digest(scope string, n int) ([]Scored, error) {
 		if s.Scope == ScopeShared && scope != ScopeShared && scope != "" {
 			s.ScopeWeight = ix.Ranking().DigestSharedWeight
 		}
-		s.Score = s.KindWeight * s.ScopeWeight * s.Boost
+		s.Score = s.KindWeight * s.ScopeWeight * math.Min(s.Boost, digestBoostCap)
 		all = append(all, s)
 	}
 	// Newest first on equal score, so a fresh vault reads as it did before.
@@ -342,6 +361,34 @@ func (ix *Index) Digest(scope string, n int) ([]Scored, error) {
 			if picked[i].Kind != KindPreference {
 				picked[i] = s
 				prefs++
+				break
+			}
+		}
+	}
+	// Keep room for what is new: the newest memories get a slot each, taken from
+	// the lowest-scored memories that are neither preferences nor new.
+	newest := append([]Scored(nil), all...)
+	sort.SliceStable(newest, func(i, j int) bool { return newest[i].At > newest[j].At })
+	inPicked := map[string]bool{}
+	for _, s := range picked {
+		inPicked[s.ID] = true
+	}
+	protected := map[string]bool{}
+	for _, s := range newest {
+		if len(protected) >= digestFreshSlots || len(protected) >= len(picked) {
+			break
+		}
+		if inPicked[s.ID] {
+			protected[s.ID] = true
+			continue
+		}
+		sort.SliceStable(picked, func(i, j int) bool { return picked[i].Score > picked[j].Score })
+		for i := len(picked) - 1; i >= 0; i-- {
+			if picked[i].Kind != KindPreference && !protected[picked[i].ID] {
+				delete(inPicked, picked[i].ID)
+				picked[i] = s
+				inPicked[s.ID] = true
+				protected[s.ID] = true
 				break
 			}
 		}

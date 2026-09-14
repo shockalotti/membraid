@@ -428,7 +428,7 @@ func toolDefs(semantic bool) []map[string]any {
 				"properties": map[string]any{
 					"query": map[string]any{"type": "string", "description": "Words you would expect in the memory."},
 					"limit": map[string]any{"type": "integer", "description": "Max results, default 10."},
-					"scope": map[string]any{"type": "string", "description": "Omit for the current project. \"*\" searches everything."},
+					"scope": map[string]any{"type": "string", "description": "Omit for the current project (and shared). \"*\" searches every project, for finding something you cannot place; those results are not counted as retrieved."},
 				},
 			},
 		},
@@ -551,8 +551,12 @@ func (s *mcpServer) callTool(req rpcRequest) {
 		for i, h := range hits {
 			ids[i] = h.ID
 		}
-		if err := s.ix.Touch(ids); err != nil {
-			fmt.Fprintf(os.Stderr, "membraid: could not record retrieval: %v\n", err)
+		// A search across every project is triage, not recall: it marks nothing
+		// as retrieved, or it would refresh everything it happens to see (SPEC 7.2).
+		if sc != "*" {
+			if err := s.ix.Touch(ids); err != nil {
+				fmt.Fprintf(os.Stderr, "membraid: could not record retrieval: %v\n", err)
+			}
 		}
 		var b strings.Builder
 		for _, h := range hits {

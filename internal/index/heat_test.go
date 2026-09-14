@@ -179,3 +179,66 @@ func TestRescopeMovesHeat(t *testing.T) {
 		t.Errorf("heat must move with its memories, got %+v", why)
 	}
 }
+
+// Use tips close calls but cannot overturn a clearly better match: a memory
+// used again and again still ranks below one that matches the query far better.
+func TestUseCannotBeatAClearlyBetterMatch(t *testing.T) {
+	ix := newIndex(t)
+	clock := time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)
+	ix.SetClock(func() time.Time { return clock })
+	strong, _ := ix.Write(Memory{Kind: KindInsight, Content: "staging deploys go to railway after the migration check passes", Source: "x"})
+	weak, _ := ix.Write(Memory{Kind: KindInsight, Content: "the office wifi password rotates monthly; ask about railway tickets", Source: "x"})
+	for i := 0; i < 30; i++ {
+		clock = clock.Add(12 * time.Hour)
+		ix.MarkUsed([]string{weak.ID}, "x", 1)
+	}
+	hits, err := ix.Search("staging deploys railway migration check", "shared", 10)
+	if err != nil || len(hits) != 2 {
+		t.Fatalf("search: %v %v", hits, err)
+	}
+	if hits[0].ID != strong.ID {
+		t.Errorf("a clearly better match must lead however much the other is used: %+v %+v", hits[0].Why, hits[1].Why)
+	}
+	if f := hits[1].Why.UseFactor; f > useFactorMax || f <= 1 {
+		t.Errorf("heavy use must lift within the bound, got use factor %v", f)
+	}
+}
+
+// Memories agents already rely on cannot hold every digest slot: the newest
+// memories keep a place.
+func TestDigestKeepsRoomForNewMemories(t *testing.T) {
+	ix := newIndex(t)
+	clock := time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)
+	ix.SetClock(func() time.Time { return clock })
+	var old []string
+	for i := 0; i < 15; i++ {
+		w, _ := ix.Write(Memory{Kind: KindProjectParam, Key: "setting.k" + string(rune('a'+i)), Content: "established value", Scope: "g1", Source: "x"})
+		old = append(old, w.ID)
+	}
+	for d := 0; d < 20; d++ {
+		clock = clock.Add(24 * time.Hour)
+		ix.MarkUsed(old, "x", 1)
+	}
+	var fresh []string
+	for i := 0; i < 3; i++ {
+		clock = clock.Add(time.Hour)
+		w, _ := ix.Write(Memory{Kind: KindInsight, Content: "new finding", Scope: "g1", Source: "x"})
+		fresh = append(fresh, w.ID)
+	}
+	got, err := ix.Digest("g1", 12)
+	if err != nil || len(got) != 12 {
+		t.Fatalf("digest: %d %v", len(got), err)
+	}
+	in := map[string]bool{}
+	for _, s := range got {
+		in[s.ID] = true
+		if s.Score > 0.9*digestBoostCap+1e-9 {
+			t.Errorf("boost in the digest is capped, got score %v for %+v", s.Score, s.Hit)
+		}
+	}
+	for _, id := range fresh {
+		if !in[id] {
+			t.Errorf("the newest memories must keep a place in the digest; missing %s", id)
+		}
+	}
+}

@@ -86,21 +86,40 @@ func (ix *Index) boost(heat float64) float64 {
 	return 1 + ix.Ranking().FrequencyBoost*math.Log(heat)
 }
 
+// useWeight and the factor's bounds set how far use can move a search score:
+// from 0.6x for a memory long unused to 1.3x for one heavily relied on.
+const (
+	useWeight    = 0.15
+	useFactorMin = 0.6
+	useFactorMax = 1.3
+)
+
+// useFactor turns boost into a bounded multiplier for search ranking.
+func useFactor(boost float64) float64 {
+	if boost <= 0 {
+		return useFactorMin
+	}
+	return math.Min(useFactorMax, math.Max(useFactorMin, 1+useWeight*math.Log(boost)))
+}
+
 // Why is how a memory earned its place.
 //
-//	heat  = sum over writes and uses of 0.5 ^ (days since / halflife)
-//	boost = heat when heat <= 1, else 1 + frequency_boost x ln(heat)
-//	score = relevance x boost
+//	heat       = sum over writes and uses of 0.5 ^ (days since / halflife)
+//	boost      = heat when heat <= 1, else 1 + frequency_boost x ln(heat)
+//	use factor = 1 + 0.15 x ln(boost), kept between 0.6 and 1.3
+//	score      = relevance / best relevance x use factor
 type Why struct {
 	Relevance float64 `json:"relevance"`
 	// Writes is how many times the subject was written, history included.
 	Writes int `json:"writes"`
 	// Uses is the part of heat that comes from reported uses, on every machine.
-	Uses     float64 `json:"uses"`
-	Heat     float64 `json:"heat"`
-	Boost    float64 `json:"boost"`
-	LastUsed string  `json:"last_used,omitempty"`
-	Score    float64 `json:"score"`
+	Uses  float64 `json:"uses"`
+	Heat  float64 `json:"heat"`
+	Boost float64 `json:"boost"`
+	// UseFactor is how much use moves the search score, within 0.6 to 1.3.
+	UseFactor float64 `json:"use_factor"`
+	LastUsed  string  `json:"last_used,omitempty"`
+	Score     float64 `json:"score"`
 }
 
 const subjectSep = "\x1f"

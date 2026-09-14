@@ -277,7 +277,9 @@ func run(args []string) error {
 			for i, h := range hits {
 				ids[i] = h.ID
 			}
-			if !*noTrack {
+			// A person browsing, or a search across every project, marks nothing as
+			// retrieved (SPEC 7.2).
+			if !*noTrack && sc != "*" {
 				_ = ix.Touch(ids)
 			}
 			if *jsonOut {
@@ -296,8 +298,8 @@ func run(args []string) error {
 					if last == "" {
 						last = "never"
 					}
-					fmt.Printf("    score %.3f = relevance %.3f x boost %.2f   (heat %.2f from %d write%s and %.1f uses, last %s)\n",
-						h.Why.Score, h.Why.Relevance, h.Why.Boost, h.Why.Heat, h.Why.Writes, plural(h.Why.Writes), h.Why.Uses, last)
+					fmt.Printf("    score %.3f = relevance %.3f (relative to the best match) x use %.2f   (boost %.2f from heat %.2f: %d write%s and %.1f uses, last %s)\n",
+						h.Why.Score, h.Why.Relevance, h.Why.UseFactor, h.Why.Boost, h.Why.Heat, h.Why.Writes, plural(h.Why.Writes), h.Why.Uses, last)
 				}
 			}
 			return nil
