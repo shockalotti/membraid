@@ -54,7 +54,7 @@ Usage:
   membraid install [--dry-run]           set membraid up in your agent harnesses
   membraid version [--json]              which release this is
   membraid projects [--json] | prune     every project, and forgetting empty ones
-  membraid source add FOLDER --about T   point agents at a folder of knowledge (specs, notes, docs)
+  membraid source add FOLDER|REPO|URL --about T [--login]   point agents at knowledge: a folder, git repo or web page
   membraid source list [--json] | remove KEY   knowledge locations, and removing one
   membraid memories [--json] [filters]   browse current memories (--scope, --kind, --source, -n)
   membraid insights [--json] [--days N]  how memory is being used
@@ -124,7 +124,8 @@ func run(args []string) error {
 	noTrack := fs.Bool("no-track", false, "search: a person browsing, so results are not counted as used")
 	days := fs.Int("days", 7, "insights: how many days to look back")
 	list := fs.Bool("list", false, "install: list harnesses and whether membraid is set up in each, as JSON")
-	about := fs.String("about", "", "source add: what the folder holds and when to read it")
+	about := fs.String("about", "", "source add: what the location holds and when to read it")
+	login := fs.Bool("login", false, "source add: the web page needs a login")
 	if err := fs.Parse(permute(fs, rest)); err != nil {
 		return err
 	}
@@ -359,7 +360,7 @@ func run(args []string) error {
 		})
 
 	case "source":
-		return runSource(v, cfg, fs.Args(), *about, *key, *scopeFlag, given["scope"], *jsonOut, *source)
+		return runSource(v, cfg, fs.Args(), *about, *key, *scopeFlag, given["scope"], *login, *jsonOut, *source)
 
 	case "projects":
 		return withIndex(v, cfg, func(ix *index.Index) error {

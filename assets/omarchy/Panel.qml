@@ -70,6 +70,7 @@ Panel {
   // Projects tab: knowledge locations
   property var sources: []
   property string addingSourceScope: ""
+  property bool sourceLogin: false
   property var preview: []
 
   readonly property var doing: status.doing || []
@@ -213,15 +214,46 @@ Panel {
     Qt.callLater(function() { sourceFolderField.forceActiveFocus() })
   }
 
+  // What membraid will record the input as. A hint only: membraid itself
+  // decides when saving, and a folder inside a git repo becomes the repo.
+  function sourceTypeOf(text) {
+    var t = text.trim()
+    if (t === "") return ""
+    if (/^(git@|ssh:\/\/|git:\/\/)/.test(t)) return "git"
+    var m = t.match(/^https?:\/\/(?:[^@\/]*@)?([^\/:?#]+)[^\/?#]*(\/[^?#]*)?/i)
+    if (m) {
+      var host = m[1].toLowerCase()
+      var p = m[2] || ""
+      var segs = p.split("/").filter(function(x) { return x !== "" })
+      var gitHost = ["github.com", "gitlab.com", "codeberg.org", "bitbucket.org"].indexOf(host) >= 0
+      if (/\.git$/.test(p) || (gitHost && segs.length === 2)) return "git"
+      return "web"
+    }
+    return "folder"
+  }
+
   function saveSource() {
-    var folder = sourceFolderField.text.trim()
+    var target = sourceFolderField.text.trim()
     var about = sourceAboutField.text.trim()
-    if (folder === "" || about === "") return
-    root.runAction(["source", "add", folder, "--about", about, "--scope", root.addingSourceScope, "--source", "user"])
+    if (target === "" || about === "") return
+    var args = ["source", "add", target, "--about", about, "--scope", root.addingSourceScope, "--source", "user"]
+    if (root.sourceTypeOf(target) === "web" && root.sourceLogin) args.push("--login")
+    root.runAction(args)
     sourceFolderField.text = ""
     sourceAboutField.text = ""
+    root.sourceLogin = false
     root.addingSourceScope = ""
     keyCatcher.forceActiveFocus()
+  }
+
+  // Where a location is and who can reach it, for the Projects list.
+  function sourceWhere(s) {
+    if (s.type === "folder") return "Folder  " + s.path + (s.here ? "" : "  (only on " + s.host + ")")
+    if (s.type === "git") return "Git repo  " + s.repo + (s.subdir ? "  /" + s.subdir : "")
+                                 + (s.here ? "  (checked out here)" : s.checkout ? "  (checked out on " + s.host + ")" : "")
+    if (s.type === "web") return "Web page  " + s.url + (s.private ? "  (private network)"
+                                 : s.login ? "  (needs " + (s.service || "a login") + ")" : "  (public)")
+    return ""
   }
 
   function selectTab(id) {
@@ -862,7 +894,7 @@ Panel {
                 TextField {
                   id: sourceFolderField
                   width: parent.width - browseLink.width - parent.spacing
-                  placeholderText: "Folder, e.g. ~/Work/specs/api"
+                  placeholderText: "Folder, git repo or web address"
                   foreground: root.foreground
                   Keys.onEscapePressed: { root.addingSourceScope = ""; keyCatcher.forceActiveFocus() }
                   onAccepted: sourceAboutField.forceActiveFocus()
@@ -872,6 +904,30 @@ Panel {
                   anchors.verticalCenter: sourceFolderField.verticalCenter
                   text: browseProcess.running ? "Choosing..." : "Browse"
                   onActivated: if (!browseProcess.running) browseProcess.running = true
+                }
+              }
+              Caption {
+                visible: root.sourceTypeOf(sourceFolderField.text) !== ""
+                width: parent.width
+                text: ({
+                  folder: "Folder: only on this machine. A folder inside a git repo is saved as the repo, so other machines can clone it.",
+                  git: "Git repo: any machine can read it in a checkout or clone it.",
+                  web: "Web page: membraid never opens it; say below if it needs a login."
+                })[root.sourceTypeOf(sourceFolderField.text)] || ""
+              }
+              Row {
+                visible: root.sourceTypeOf(sourceFolderField.text) === "web"
+                width: parent.width
+                spacing: Style.spacing.lg
+                ToggleSwitch {
+                  id: loginSwitch
+                  checked: root.sourceLogin
+                  onToggled: root.sourceLogin = !root.sourceLogin
+                }
+                Body {
+                  anchors.verticalCenter: loginSwitch.verticalCenter
+                  width: parent.width - loginSwitch.width - parent.spacing
+                  text: "Needs a login (Notion and Google Drive links are detected)"
                 }
               }
               TextField {
@@ -884,7 +940,7 @@ Panel {
               }
               Caption {
                 width: parent.width
-                text: "Agents see this in search and in the digest, and open the folder with their own tools. membraid does not read the files."
+                text: "Agents see this in search and in the digest, and open it with their own tools. membraid never reads, clones or fetches it."
               }
               Row {
                 spacing: Style.space(16)
@@ -941,12 +997,12 @@ Panel {
                     Body { width: parent.width - parent.leftPadding; text: srcItem.s.about }
                     Caption {
                       width: parent.width - parent.leftPadding
-                      color: srcItem.s.exists ? root.dim : root.urgent
-                      text: srcItem.s.folder + (srcItem.s.exists ? "" : "  (not on this machine; added on " + srcItem.s.host + ")")
+                      color: srcItem.s.type === "folder" && !srcItem.s.here ? root.urgent : root.dim
+                      text: root.sourceWhere(srcItem.s)
                     }
                     Row {
                       spacing: Style.space(14)
-                      Link { visible: srcItem.s.exists; text: "Open"; onActivated: root.openPath(srcItem.s.folder.replace(/^~/, root.home)) }
+                      Link { visible: !!srcItem.s.open; text: "Open"; onActivated: root.openPath(srcItem.s.open) }
                       Link {
                         visible: root.confirmForgetId !== srcItem.s.id
                         text: "Remove"

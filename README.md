@@ -25,7 +25,7 @@ membraid is one brain behind all of them.
   pushes after writes and pulls when a session starts. Each machine appends to
   its own log file, so machines never conflict over memory.
 - **A bar widget for Omarchy**: where you left off, your memories and projects, knowledge locations, how memory is being used, and settings, including setting up a harness.
-- **Knowledge locations**: point agents at folders of specs, notes or docs (`membraid source add`); membraid records where they are, never what is in them.
+- **Knowledge locations**: point agents at folders, git repos or web pages (`membraid source add`), with who can reach each; membraid records where knowledge is, never what is in it.
 
 ## Supported harnesses
 

@@ -53,10 +53,10 @@ func TestSourceAddListRemove(t *testing.T) {
 		t.Fatalf("want one location, got %+v", got)
 	}
 	s := got[0]
-	if s.Folder != "~/Work/API Specs" || s.About != "API design specs; read before changing endpoints" || !s.Exists || s.Host == "" {
+	if s.Type != "folder" || s.Path != "~/Work/API Specs" || s.About != "API design specs; read before changing endpoints" || !s.Here || s.Host == "" {
 		t.Errorf("a folder with a space, stored relative to home, must parse back whole: %+v", s)
 	}
-	if !strings.HasPrefix(s.Content, "Knowledge location: API design specs; read before changing endpoints. Folder: ~/Work/API Specs (on ") {
+	if !strings.HasPrefix(s.Content, "Knowledge location: API design specs; read before changing endpoints. Folder ~/Work/API Specs, only on ") {
 		t.Errorf("content wrong: %q", s.Content)
 	}
 	if s.Key != "source.api.specs" || s.Scope != "shared" || s.Source != "user" {
@@ -70,6 +70,17 @@ func TestSourceAddListRemove(t *testing.T) {
 	if out := run(true, "source", "add", filepath.Join(home, "nope"), "--about", "missing", "--scope", "shared"); !strings.Contains(out, "no folder") {
 		t.Errorf("a missing folder must be refused, got %q", out)
 	}
+	run(false, "source", "add", "https://www.notion.so/Team-Runbook", "--about", "Team runbook", "--scope", "shared")
+	var web sourceInfo
+	for _, s := range list() {
+		if s.Type == "web" {
+			web = s
+		}
+	}
+	if web.Service != "Notion" || !web.Login || web.Open != "https://www.notion.so/Team-Runbook" {
+		t.Errorf("a Notion page must be recognised as needing Notion access: %+v", web)
+	}
+	run(false, "source", "remove", web.Key, "--scope", "shared")
 	run(false, "source", "remove", "api.specs", "--scope", "shared")
 	if got := list(); len(got) != 0 {
 		t.Errorf("remove must retire the location, got %+v", got)

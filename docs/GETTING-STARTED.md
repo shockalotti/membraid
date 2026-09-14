@@ -412,36 +412,56 @@ score as you change them.
 
 ## Knowledge locations
 
-membraid does not index folders of documents. It records **where** knowledge
-lives, so agents read it there with their own tools:
+membraid does not index documents. It records **where** knowledge lives, and
+who can reach it, so agents read it there with their own tools:
 
 ```sh
-membraid source add ~/Work/specs/api --about "API design specs; read before changing endpoints"
+membraid source add ~/Notes/design --about "Design notes; read before UI work"
+membraid source add ~/Projects/api/docs --about "API specs; read before changing endpoints"
+membraid source add https://docs.example.com --about "Public product docs"
+membraid source add https://www.notion.so/Team-Runbook --about "Team runbook"
 membraid source list
-membraid source remove api          # by key: source.api
+membraid source remove notes.design     # by key: source.notes.design
 ```
 
-A knowledge location is an ordinary memory with a `source.` key, a project
-value in the project you are in (or `--scope shared` for every project):
+The input decides the type:
+
+| Type | From | Who can reach it |
+|---|---|---|
+| **Folder** | a local path | only the machine it was added on |
+| **Git repo** | a repo address (`git@...`, `github.com/owner/repo`, `...git`), or a folder inside a repo with a remote | any machine, in a checkout or by cloning; a private repo needs access |
+| **Web page** | any other `http(s)` address | anyone, unless it needs a login (`--login`) or is on your private network |
+
+- **A folder inside a git repo is saved as the repo.** `~/Projects/api/docs`
+  becomes the repo's remote plus the `docs/` folder and where it is checked
+  out, so your other machines can find the same knowledge by cloning it.
+- **Private addresses are recognised from the address alone:** `localhost`, a
+  bare machine name, `*.ts.net`, `*.local`, and private or Tailscale IP ranges.
+- **Notion and Google Drive links are recognised** and marked as needing that
+  service's access; published `notion.site` pages count as public.
+- **Credentials never reach memory.** A token in a repo's remote URL is removed,
+  and a page that needs a login records only that it does.
+- **membraid never reads, clones, fetches or probes a location.**
+
+Each is an ordinary memory with a `source.` key, a project value in the project
+you are in (or `--scope shared`). Its text tells an agent on another machine
+what to do, for example:
 
 ```
-Knowledge location: API design specs; read before changing endpoints.
-Folder: ~/Work/specs/api (on omarchy). Read it there with your own tools when the work touches it.
+Knowledge location: Team runbook. Web page https://www.notion.so/Team-Runbook, needs Notion access:
+use a Notion tool if you have one, otherwise ask the user. [source type="web" ...]
 ```
 
-- Agents find it in search and in the project's digest, and it ranks by use
-  like any memory.
-- The folder is stored relative to your home (`~/...`) with the machine it was
-  added on, since it may not exist on your other machines; the widget marks
-  one that is missing here.
-- Adding the same folder again replaces its entry. Removing one retires it
-  into history.
-- The widget's Projects tab adds, opens and removes them.
+The `[source ...]` tail is what `membraid source list --json` and the widget
+read back. Agents find locations in search and in the project's digest, and
+they rank by use like any memory. Adding the same place again replaces its
+entry; removing one retires it into history. The widget's Projects tab adds,
+opens and removes them, and shows the detected type as you type.
 
-Why not index the folders: searching documents people wrote is a different
-problem from sharing what agents learn, agents can already read files, and
-indexing arbitrary folders is the surest way for secrets to end up in memory
-([V1-SCOPE](V1-SCOPE.md)).
+Why not index them: searching documents people wrote is a different problem
+from sharing what agents learn, agents can already read files, clone repos and
+use Notion or Drive tools, and indexing is the surest way for secrets to end up
+in memory ([V1-SCOPE](V1-SCOPE.md)).
 
 ## What an agent actually sees
 
