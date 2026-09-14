@@ -76,16 +76,39 @@ func Open(path string, log *wirelog.Log) (*Index, error) {
 			db.Close()
 			return nil, fmt.Errorf("index: wal: %w", err)
 		}
-		if _, err := db.Exec(schemaSQL); err != nil {
+		if err := createSchema(db); err != nil {
 			db.Close()
 			return nil, fmt.Errorf("index: schema: %w", err)
 		}
-		if _, err := db.Exec(fmt.Sprintf("PRAGMA user_version = %d", schemaVersion)); err != nil {
-			db.Close()
-			return nil, err
-		}
 	}
 	return &Index{db: db, log: log, now: func() time.Time { return time.Now().UTC() }}, nil
+}
+
+// createSchema creates or upgrades the schema in one write transaction. Every
+// harness can start at once on a new or just-upgraded index, and outside a
+// transaction their CREATE statements raced: one could fail with SQLITE_BUSY
+// instead of waiting. BEGIN IMMEDIATE (_txlock) waits its turn on
+// busy_timeout, and whoever gets the lock after the first finds the work done.
+func createSchema(db *sql.DB) error {
+	tx, err := db.Begin()
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+	var version int
+	if err := tx.QueryRow(`PRAGMA user_version`).Scan(&version); err != nil {
+		return err
+	}
+	if version == schemaVersion {
+		return nil
+	}
+	if _, err := tx.Exec(schemaSQL); err != nil {
+		return err
+	}
+	if _, err := tx.Exec(fmt.Sprintf("PRAGMA user_version = %d", schemaVersion)); err != nil {
+		return err
+	}
+	return tx.Commit()
 }
 
 // enableWAL switches a new index to write-ahead logging. Several processes can
