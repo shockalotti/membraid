@@ -103,6 +103,8 @@ next starts; the goal is the **usable** line below, not the bottom of the table.
 | Agent skill + `membraid install` (asks which harnesses, migrates the old `memory` server name) | How to write well, and one command to set up every harness |
 | `forget` + `memory_forget` | Only tasks could be closed; a mistaken memory stayed in every digest for good |
 | Mid-session refresh: import before every tool call, background pull once the pull interval elapses | Long-lived servers (Hermes's gateway runs for days) never saw memories pulled after they started |
+| `unscoped` quarantine: a write with no project lands in `unscoped`, never `shared`; no read includes it; status, sweep and the widget count it | An agent started outside any project wrote to `shared`, so one misconfigured harness leaked into every project (SPEC §17, v1.17) |
+| Index version guard: an index built by a newer membraid is refused, schema 3 and later upgrade in place, anything older is set aside and rebuilt; `membraid reindex` rebuilds on demand | Releases let machines run different versions. The wire log is the only thing that crosses machines; opening a newer index would have silently lost what its schema added (SPEC §5.3) |
 
 ### The quality layer: in progress
 
@@ -160,8 +162,7 @@ does not exist on day one, and each is cheap to add when it does.
 | REST API, TLS, bearer tokens, token->source | §11, §12 | Remote or non-MCP consumers |
 | `backup` online API + capture order | §3.3 | Data worth backing up |
 | `reindex` flock gating, `init` refusal | §3.3 | A resident daemon to race |
-| Schema + protocol version skew | §5.3 | Releases now ship (`membraid update`), so machines can run different versions. The wire log is the only thing that crosses machines and its format is locked; each machine's index is its own and is rebuilt from the log. What remains is a guard for an older binary opening a newer index, before any schema change after v3 |
-| Full scope ladder, `unscoped` quarantine | §17 | More than a `--scope` flag needs |
+| Scope ladder steps that need a daemon: the shim's `scope_hint` and a daemon-wide default `scope` | §17 | The daemon. The rest of the ladder is built: explicit scope, then `MEMBRAID_SCOPE`, then the project the agent runs in, and otherwise the `unscoped` quarantine (below) |
 | Obsidian watcher | §16 M9 | The `reindex`-after-edit workflow to annoy someone |
 | Vector search | §16 M11 | Decided, no longer deferred: pure Go over the existing SQLite index, optional local embeddings (EmbeddingGemma via Ollama, or built-in all-MiniLM), vector-only when on. Measurements and rejected alternatives in [SEARCH-EVALUATION.md](SEARCH-EVALUATION.md) |
 | Embedding speed on low-end machines | - | Deferred by choice. The embedding bake-off picks a default model on a fast laptop first; the weakest supported machine (e.g. a 4-core minipc) is tested before that model is recommended to anyone |
