@@ -40,26 +40,31 @@ type Config struct {
 	// EmbedModel is the Ollama model tag; empty means the default. The builtin
 	// provider has one model and ignores it.
 	EmbedModel string `json:"embed_model,omitempty"`
+	// MetricsEveryDays is how often the scheduled sync appends an observability
+	// snapshot to the metrics journal (SPEC 18). 0 disables the scheduled
+	// snapshot; "membraid metrics" appends one regardless.
+	MetricsEveryDays int `json:"metrics_every_days"`
 }
 
 // EmbeddingsOn reports whether search by meaning is configured.
 func (c Config) EmbeddingsOn() bool { return c.Embeddings != "" && c.Embeddings != "off" }
 
 func Defaults() Config {
-	return Config{AutoSync: true, PushDelaySec: 60, PullIntervalMin: 15, DistillEveryMin: 30, SweepEveryDays: 7}
+	return Config{AutoSync: true, PushDelaySec: 60, PullIntervalMin: 15, DistillEveryMin: 30, SweepEveryDays: 7, MetricsEveryDays: 7}
 }
 
 // LocalKeys are this machine's settings, with what each means. Ranking and
 // upkeep thresholds are the user's and live in the vault (SharedKeys).
 var LocalKeys = map[string]string{
-	"auto_sync":         "push shortly after writes, pull when a session starts (true or false)",
-	"push_delay_sec":    "seconds writes must go quiet before a push (5 or more)",
-	"pull_interval_min": "how stale a scheduled pull may get, in minutes",
-	"distill_every_min": "how often the scheduled sync writes readable notes, in minutes (5 or more)",
-	"sweep_every_days":  "how often the scheduled sync runs upkeep, in days (1 to 90)",
-	"embeddings":        "search by meaning: off, ollama or builtin",
-	"embed_model":       "the Ollama model; empty for the default",
-	"host":              "names this machine's log file; empty for the hostname",
+	"auto_sync":          "push shortly after writes, pull when a session starts (true or false)",
+	"push_delay_sec":     "seconds writes must go quiet before a push (5 or more)",
+	"pull_interval_min":  "how stale a scheduled pull may get, in minutes",
+	"distill_every_min":  "how often the scheduled sync writes readable notes, in minutes (5 or more)",
+	"sweep_every_days":   "how often the scheduled sync runs upkeep, in days (1 to 90)",
+	"embeddings":         "search by meaning: off, ollama or builtin",
+	"embed_model":        "the Ollama model; empty for the default",
+	"host":               "names this machine's log file; empty for the hostname",
+	"metrics_every_days": "how often the scheduled sync appends an observability snapshot (0 = off, 1 to 366)",
 }
 
 // Dir is MEMBRAID_CONFIG_DIR, or the platform config dir: ~/.config/membraid on
@@ -113,6 +118,9 @@ func (c *Config) clamp() {
 	} else if c.SweepEveryDays > 90 {
 		c.SweepEveryDays = 90
 	}
+	if c.MetricsEveryDays < 0 || c.MetricsEveryDays > 366 {
+		c.MetricsEveryDays = Defaults().MetricsEveryDays
+	}
 }
 
 func (c Config) Save() error {
@@ -151,6 +159,12 @@ func (c *Config) Set(key, value string) error {
 		default:
 			c.SweepEveryDays = n
 		}
+	case "metrics_every_days":
+		n, err := strconv.Atoi(strings.TrimSpace(value))
+		if err != nil || n < 0 {
+			return fmt.Errorf("metrics_every_days takes a whole number of days (0 = no scheduled snapshot), got %q", value)
+		}
+		c.MetricsEveryDays = n
 	case "host":
 		c.Host = strings.TrimSpace(value)
 	case "embeddings":
@@ -163,7 +177,7 @@ func (c *Config) Set(key, value string) error {
 	case "embed_model":
 		c.EmbedModel = strings.TrimSpace(value)
 	default:
-		return fmt.Errorf("unknown setting %q (auto_sync, push_delay_sec, pull_interval_min, distill_every_min, sweep_every_days, host, embeddings, embed_model)", key)
+		return fmt.Errorf("unknown setting %q (auto_sync, push_delay_sec, pull_interval_min, distill_every_min, sweep_every_days, metrics_every_days, host, embeddings, embed_model)", key)
 	}
 	c.clamp()
 	return nil
@@ -190,6 +204,11 @@ type State struct {
 	Pushed      bool   `json:"pushed,omitempty"`
 	Pulled      bool   `json:"pulled,omitempty"`
 	Imported    int    `json:"imported,omitempty"`
+	// LastMetricsAt is when this machine last appended an observability
+	// snapshot (SPEC 18), so the scheduled sync appends one only when due. This
+	// is a fact about this machine, like host - the journal is committed, the
+	// state that gates it is not.
+	LastMetricsAt string `json:"last_metrics_at,omitempty"`
 }
 
 func LoadState() State {

@@ -16,6 +16,21 @@ func TestCadenceSettings(t *testing.T) {
 	if err := c.Set("sweep_every_days", "0"); err == nil {
 		t.Error("sweep_every_days 0 must be refused")
 	}
+	if c.MetricsEveryDays != 7 {
+		t.Errorf("metrics_every_days default must be 7, got %d", c.MetricsEveryDays)
+	}
+	if err := c.Set("metrics_every_days", "0"); err != nil || c.MetricsEveryDays != 0 {
+		t.Errorf("metrics_every_days 0 must be allowed (off): %v %d", err, c.MetricsEveryDays)
+	}
+	if err := c.Set("metrics_every_days", "9"); err != nil || c.MetricsEveryDays != 9 {
+		t.Errorf("metrics_every_days 9 must be allowed: %v %d", err, c.MetricsEveryDays)
+	}
+	if err := c.Set("metrics_every_days", "-1"); err == nil {
+		t.Error("metrics_every_days -1 must be refused")
+	}
+	if err := c.Set("metrics_every_days", "900"); err != nil || c.MetricsEveryDays != 7 {
+		t.Errorf("metrics_every_days 900 must clamp back to the default 7: %v %d", err, c.MetricsEveryDays)
+	}
 	if err := c.Set("halflife_days", "10"); err == nil {
 		t.Error("halflife_days is a vault setting, not this machine's")
 	}

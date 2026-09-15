@@ -67,3 +67,61 @@ func TestFuzzyThresholdOfOneMatchesOnlyTheSameWords(t *testing.T) {
 		t.Errorf("at 1 case, spacing and punctuation still match: %+v", res)
 	}
 }
+
+// A restatement too close to ignore but not close enough to replace is a
+// near-miss candidate (SPEC 18): reported, never superseded, and never part of
+// the wire log. The band is [near-miss floor, fuzzy threshold). An identical
+// restatement still replaces, and two facts that merely resemble one another
+// (SPEC 6.2's frontend/backend example, which scores just under the floor) are
+// neither a supersession nor a near-miss.
+func TestNearMissBelowTheFuzzyThreshold(t *testing.T) {
+	dir := t.TempDir()
+	ix := newIndexAt(t, dir, "a")
+
+	old, err := ix.Write(Memory{Kind: KindInsight, Content: "the staging DB is on port 5432", Scope: "g1", Source: "x"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	res, err := ix.Write(Memory{Kind: KindInsight, Content: "staging db is on port 5432", Scope: "g1", Source: "y"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(res.Superseded) != 0 || res.Mode != "" {
+		t.Fatalf("a near-miss must not supersede anything: %+v", res)
+	}
+	if len(res.NearMiss) != 1 || res.NearMiss[0].ID != old.ID {
+		t.Fatalf("want one near-miss naming the earlier memory, got %+v", res.NearMiss)
+	}
+	if s := res.NearMiss[0].Score; s < nearMissFloor || s >= DefaultRanking().FuzzyThreshold {
+		t.Fatalf("near-miss score %.3f must sit in [%.2f, %.2f)", s, nearMissFloor, DefaultRanking().FuzzyThreshold)
+	}
+
+	ix.Write(Memory{Kind: KindInsight, Content: "the staging DB is on port 5432", Scope: "g2", Source: "x"})
+	same, err := ix.Write(Memory{Kind: KindInsight, Content: "the staging DB is on  port 5432.", Scope: "g2", Source: "x"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(same.Superseded) != 1 || same.Mode != wirelog.ModeFuzzy || len(same.NearMiss) != 0 {
+		t.Errorf("an identical restatement still replaces, with no near-miss: %+v", same)
+	}
+
+	far, err := ix.Write(Memory{Kind: KindInsight, Content: "the frontend repo deploys to vercel on every push to main", Scope: "g3", Source: "x"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	other, err := ix.Write(Memory{Kind: KindInsight, Content: "the backend repo deploys to vercel on every push to main", Scope: "g3", Source: "x"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(other.Superseded) != 0 || len(other.NearMiss) != 0 {
+		t.Errorf("the spec's two-facts pair must be neither a supersession nor a near-miss: %+v, old %s", other, far.ID)
+	}
+
+	// Near-misses never reach the wire log, so a rebuild sees exactly the same
+	// store as the original index.
+	fresh := newIndexAt(t, dir, "fresh")
+	fresh.ImportAll()
+	if snapshot(t, fresh) != snapshot(t, ix) {
+		t.Errorf("a rebuild must reach the same result: near-miss notes are not part of the log")
+	}
+}

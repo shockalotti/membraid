@@ -27,6 +27,13 @@ type fuzzyMatch struct {
 	score float64
 }
 
+// nearMissFloor is the score at or above which an unkeyed write that does not
+// replace anything is reported as a near-miss candidate (SPEC 18): close
+// enough to be the same fact the search before it failed to surface, not close
+// enough to supersede. A starting guess, to tune once the metrics journal
+// holds harvestable lines.
+const nearMissFloor = 0.90
+
 var digits = regexp.MustCompile(`[0-9]+`)
 
 // fuzzyText is content as fuzzy matching compares it: lowercase letters and
@@ -71,8 +78,10 @@ func dice(a, b map[string]int) float64 {
 }
 
 // fuzzyMatches returns the current unkeyed memories of the same scope and kind
-// that content restates, best match first.
-func (ix *Index) fuzzyMatches(scope, kind, content string, threshold float64) ([]fuzzyMatch, error) {
+// that content resembles, best match first, with score >= floor. Callers split
+// at their own threshold: Write replaces anything at or above the fuzzy
+// threshold and reports the band below it as near-misses (SPEC 6.2, 18).
+func (ix *Index) fuzzyMatches(scope, kind, content string, floor float64) ([]fuzzyMatch, error) {
 	text := fuzzyText(content)
 	if text == "" {
 		return nil, nil
@@ -100,10 +109,10 @@ func (ix *Index) fuzzyMatches(scope, kind, content string, threshold float64) ([
 		// Dice cannot exceed 2 x min / sum, so very different lengths are
 		// skipped without comparing.
 		ng := gramCount(g)
-		if 2*float64(min(nw, ng))/float64(nw+ng) < threshold {
+		if 2*float64(min(nw, ng))/float64(nw+ng) < floor {
 			continue
 		}
-		if s := dice(want, g); s >= threshold {
+		if s := dice(want, g); s >= floor {
 			out = append(out, fuzzyMatch{id: id, score: s})
 		}
 	}

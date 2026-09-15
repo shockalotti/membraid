@@ -40,6 +40,7 @@ func printConfig(v *vault.Vault, cfg config.Config) {
 		{"pull_interval_min", strconv.Itoa(cfg.PullIntervalMin)},
 		{"distill_every_min", strconv.Itoa(cfg.DistillEveryMin)},
 		{"sweep_every_days", strconv.Itoa(cfg.SweepEveryDays)},
+		{"metrics_every_days", strconv.Itoa(cfg.MetricsEveryDays)},
 		{"embeddings", embeddings},
 		{"embed_model", model},
 		{"host", wirelog.SafeHost(cfg.HostName())},

@@ -210,6 +210,18 @@ type WriteResult struct {
 	// Mode is how Superseded was found: wirelog.ModeKey, wirelog.ModeFuzzy for
 	// a near-verbatim restatement without a key, or empty when nothing was.
 	Mode string
+	// NearMiss lists current memories an unkeyed write closely restated but
+	// did not replace: score at or above the near-miss floor, below the fuzzy
+	// threshold. A candidate, not a verdict - telemetry for the observability
+	// journal (SPEC 18), never part of the wire log.
+	NearMiss []WriteNearMiss
+}
+
+// WriteNearMiss is one current memory an unkeyed write restated closely enough
+// to suggest the search before it failed to surface it.
+type WriteNearMiss struct {
+	ID    string
+	Score float64
 }
 
 var ErrInvalidKind = errors.New("index: unknown kind")
@@ -271,6 +283,7 @@ func (ix *Index) Write(m Memory) (*WriteResult, error) {
 		Content: m.Content, Confidence: m.Confidence, SessionRef: m.SessionRef,
 		Superseded: []wirelog.Superseded{},
 	}
+	var nearMiss []WriteNearMiss
 	if m.Key != "" {
 		k, mode := m.Key, wirelog.ModeKey
 		line.Key, line.SupersedeMode = &k, &mode
@@ -288,17 +301,26 @@ func (ix *Index) Write(m Memory) (*WriteResult, error) {
 		}
 	} else if len(m.Replaces) == 0 {
 		// No key: only a near-verbatim restatement replaces anything. The log
-		// records what was closed, so replay never recomputes the match.
-		matches, err := ix.fuzzyMatches(m.Scope, m.Kind, m.Content, ix.Ranking().FuzzyThreshold)
+		// records what was closed, so replay never recomputes the match. One
+		// scan at the near-miss floor feeds both duties: anything at or above
+		// the fuzzy threshold replaces the memory, anything between the floor
+		// and the threshold is a near-miss candidate the observability journal
+		// records (SPEC 18).
+		th := ix.Ranking().FuzzyThreshold
+		matches, err := ix.fuzzyMatches(m.Scope, m.Kind, m.Content, min(th, nearMissFloor))
 		if err != nil {
 			return nil, err
 		}
-		if len(matches) > 0 {
-			mode := wirelog.ModeFuzzy
-			line.SupersedeMode = &mode
-			for _, fm := range matches {
-				score := math.Round(fm.score*1000) / 1000
+		for _, fm := range matches {
+			score := math.Round(fm.score*1000) / 1000
+			if fm.score >= th {
+				if line.SupersedeMode == nil {
+					mode := wirelog.ModeFuzzy
+					line.SupersedeMode = &mode
+				}
 				line.Superseded = append(line.Superseded, wirelog.Superseded{ID: fm.id, MatchScore: &score})
+			} else {
+				nearMiss = append(nearMiss, WriteNearMiss{ID: fm.id, Score: fm.score})
 			}
 		}
 	}
@@ -334,7 +356,7 @@ func (ix *Index) Write(m Memory) (*WriteResult, error) {
 	if err := tx.Commit(); err != nil {
 		return nil, err
 	}
-	res := &WriteResult{ID: m.ID, Scope: m.Scope, Superseded: closed}
+	res := &WriteResult{ID: m.ID, Scope: m.Scope, Superseded: closed, NearMiss: nearMiss}
 	if len(closed) > 0 && line.SupersedeMode != nil {
 		res.Mode = *line.SupersedeMode
 	}
@@ -849,6 +871,25 @@ func (ix *Index) closeIDs(targets []string, reason string) ([]string, error) {
 		}
 	}
 	return targets, tx.Commit()
+}
+
+// Memory looks one memory up by id, live or superseded. It exists for readers
+// that hold only journal ids - `membraid metrics --report` resolving the two
+// ends of a miss line, say - and returns found=false when the id is unknown.
+func (ix *Index) Memory(id string) (Memory, bool, error) {
+	var m Memory
+	var k sql.NullString
+	err := ix.db.QueryRow(
+		`SELECT id, kind, key, content, scope, source FROM memories WHERE id=? ORDER BY valid_to ASC LIMIT 1`,
+		id).Scan(&m.ID, &m.Kind, &k, &m.Content, &m.Scope, &m.Source)
+	if errors.Is(err, sql.ErrNoRows) {
+		return Memory{}, false, nil
+	}
+	if err != nil {
+		return Memory{}, false, err
+	}
+	m.Key = k.String
+	return m, true, nil
 }
 
 func (ix *Index) Current(scope, kind, key string) (*Memory, error) {

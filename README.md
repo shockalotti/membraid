@@ -12,6 +12,25 @@ remembers where Monday left off.
 
 membraid is one brain behind all of them.
 
+## Where it sits
+
+The agent-memory shelf splits by what each tool assumes, and that is the honest
+line between membraid and its neighbours:
+
+- **Engram assumes a repository.** Memory lives next to the code, keyed per
+  project, and a coding session starts with that project's summary.
+- **Honcho assumes a product.** Memory is a model of each end user, built by an
+  LLM from the conversations that user had with the product's assistant.
+- **membraid assumes one human running everything.** A single vault across
+  every harness, every project and every machine, in files the human owns, with
+  no LLM in the loop.
+
+That difference also names membraid's weak spot. Honcho and Engram deliver
+memory without the agent asking - a distilled context, a session summary -
+while membraid's own retrieval waits for the agent to search. The gap is
+delivery, not storage: getting what matters in front of the model at session
+start is the work that decides whether the vault earns its place.
+
 ## What it does
 
 - **One answer per subject.** A memory written with a key (`deploy.target`)

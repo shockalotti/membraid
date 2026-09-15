@@ -504,6 +504,7 @@ func (s *mcpServer) callTool(req rpcRequest) {
 		if note := similarKeyNote(a.Key, similar); note != "" {
 			msg += " " + strings.Replace(note, "forget", "memory_forget", 1)
 		}
+		recordMisses(s.v, s.cfg, res, index.Memory{Kind: a.Kind, Scope: res.Scope, Source: s.source, SessionRef: s.session})
 		if a.Kind == index.KindTaskState {
 			msg += " Its id is " + res.ID + "; call memory_done when the task is finished."
 		}

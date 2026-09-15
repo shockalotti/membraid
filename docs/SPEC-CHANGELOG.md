@@ -8,6 +8,44 @@ next agent in the loop.
 
 ---
 
+## v1.19 (human-directed, after closing the review loop; not a round)
+
+The review loop closed at v1.14.1 and M0 work began. Then, outside any round,
+the design discussed but never specified an observability layer was written
+down as §18 and the Phase 1 half of it was built. Rationale for both:
+
+The engine emits plenty of engagement and health signals already - `memory_used`
+feeding heat, fuzzy supersession `matchScore` rows in the wire log, `insights`
+per source and per day, `status` fields like the unscoped quarantine and sweep
+reports. They are fire-and-forget: each is readable the moment it happens, but
+nothing retains them, so "was recall getting worse in this scope" is unanswerable
+a week later. The §18 section fixes that with the smallest possible record: a
+per-machine JSONL journal beside the wire log, committed and synced like it,
+holding two line kinds. `snapshot` lines are current status plus seven days of
+insights, appended when a scheduled sync finds one due (`metrics_every_days`,
+default 7, `0` disables the scheduled snapshot) or on `membraid metrics`.
+`miss` lines record the sub-threshold restatements of an unkeyed write - an
+unkeyed write that fuzzy-matches a current memory below
+`fuzzy_supersede_threshold` restated something that likely failed to surface,
+and is logged as a candidate, not a verdict. The at-or-above-threshold band is
+deliberately not duplicated: the wire log's fuzzy supersession already carries
+it with `matchScore`.
+
+Everything here is log-only and dark in v1: no command reads the journal, no
+config value is tuned from it, and no correctness path depends on it. The
+section says what chart drift should point at which §15 knob, and Phase 2
+(harvesting a labeled eval set from miss lines plus human corrections) is
+explicitly gated on the journal containing weeks of lines first. The section
+also names the tuning discipline - one knob at a time, changes logged, trends
+not points - which is what keeps the future feedback loop from being voodoo.
+
+Built in this version: the `.hot/metrics-*.jsonl` journal with `snapshot` and
+`miss` lines, the `metrics_every_days` setting, the scheduled-sync snapshot
+hook, `membraid metrics`, and the near-miss split in `index.Write` (additive
+`WriteResult.NearMiss`; the wire-log format is untouched, so `v` stays 1).
+
+---
+
 ## v1.18 (closing the open items from the spec review)
 
 **Writes were lost when a sync replaced the log file (§3.3).** Found while

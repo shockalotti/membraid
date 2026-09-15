@@ -1,6 +1,7 @@
 package index
 
 import (
+	"database/sql"
 	"path/filepath"
 	"testing"
 	"time"
@@ -99,6 +100,65 @@ func TestInsights(t *testing.T) {
 	if last := local.WritesByDay[6]; last.Day != "2026-03-11" || last.Count != 2 || local.WritesByDay[5].Count != 1 {
 		t.Errorf("want each write on its local date, got %+v", local.WritesByDay)
 	}
+}
+
+// The reads the observability snapshot (SPEC 18) is built from - Stats,
+// Insights, KeyDrift - must never count as retrieval, or the journal would
+// warm the very heat it records.
+func TestObservabilityReadsDoNotTouch(t *testing.T) {
+	ix, clock := insightsIndex(t)
+	*clock = clock.AddDate(0, 0, -3)
+	w, err := ix.Write(Memory{Kind: KindInsight, Content: "unused subject", Scope: "g1", Source: "grok"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	before := lastRetrievedRow(t, ix, w.ID)
+	if before != "" {
+		t.Fatalf("a fresh write must not be retrieved, got %q", before)
+	}
+	if _, err := ix.Stats(); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := ix.Insights(7, time.UTC); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := ix.KeyDrift("*"); err != nil {
+		t.Fatal(err)
+	}
+	if after := lastRetrievedRow(t, ix, w.ID); after != before {
+		t.Errorf("Stats/Insights/KeyDrift must not touch last_retrieved: %q -> %q", before, after)
+	}
+	// Even a used memory must keep its exact retrieval timestamp: the
+	// recently-used bucket depends on those times staying stable.
+	*clock = clock.AddDate(0, 0, 4) // two days after the write
+	if err := ix.Touch([]string{w.ID}); err != nil {
+		t.Fatal(err)
+	}
+	used := lastRetrievedRow(t, ix, w.ID)
+	if used == "" {
+		t.Fatal("Touch must set last_retrieved")
+	}
+	if _, err := ix.Stats(); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := ix.Insights(7, time.UTC); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := ix.KeyDrift("*"); err != nil {
+		t.Fatal(err)
+	}
+	if after := lastRetrievedRow(t, ix, w.ID); after != used {
+		t.Errorf("Stats/Insights/KeyDrift must never change a last_retrieved: %q -> %q", used, after)
+	}
+}
+
+func lastRetrievedRow(t *testing.T, ix *Index, id string) string {
+	t.Helper()
+	var s sql.NullString
+	if err := ix.db.QueryRow(`SELECT last_retrieved FROM memories WHERE id=?`, id).Scan(&s); err != nil {
+		t.Fatal(err)
+	}
+	return s.String
 }
 
 func TestBrowseFiltersAndDoesNotTouch(t *testing.T) {

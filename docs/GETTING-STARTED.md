@@ -216,8 +216,15 @@ every switch. So:
 membraid config                          # show them
 membraid config set auto_sync false      # stop syncing on its own
 membraid config set pull_interval_min 5
+membraid config set metrics_every_days 0 # no weekly observability snapshot (0 = off)
+membraid metrics                         # append an observability snapshot now (SPEC 18)
+membraid metrics --report                # or summarise the journal: misses, use, tasks (the weekly read)
 membraid sync                            # once, now
 ```
+
+`membraid metrics` on a machine only needs that machine's settings; snapshot
+and near-miss lines land in a `.hot/metrics-*.jsonl` journal committed like the
+wire log, one file per machine so appends never conflict.
 
 **Why two machines do not conflict.** Each machine appends to its own log file
 (`writes-2026-09-omarchy.jsonl`), so appends never touch the same file. If both

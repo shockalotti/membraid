@@ -1,7 +1,7 @@
-# Memory Engine - Design Spec v1.14.1
+# Memory Engine - Design Spec v1.19
 
 **Status:** working spec - **review loop closed; implementation begun**
-**Date:** 2026-09-12
+**Date:** 2026-09-15
 **Close-out (not a review round):** both reviewers concurred that prose review
 had reached diminishing returns and that M0 should begin. One item was locked
 first, because it is the single change that is expensive after data exists:
@@ -10,6 +10,13 @@ be bumped, that parsers for every emitted `v` are kept forever, that the log is
 the only non-rebuildable artifact with the `checkpoint` line as its sharpest
 edge, and that the stamp stays per line rather than per file. Everything before
 this line is the product of review rounds 3-14.
+**v1.19 (human-directed, not a review round; the loop stays closed):** a new
+§18, Observability and the Feedback Loop, and a `metrics_every_days` setting
+(§15). It records Phase 1 of the loop - a `.hot/metrics-*.jsonl` journal of
+`snapshot` and `miss` lines - and the discipline that later turns those lines
+into evidence-based tuning of §15 numbers. The journal is log-only and dark:
+nothing reads it, nothing changes behavior, and nothing correctness-wise
+depends on it.
 **Recent:** v1.14 folds in review round 14 (R13's fifty-seven findings
 re-verified closed, three new). Four rounds hardened `last_retrieved` across
 the *rebuild* path and left the two refresh paths that run far more often
@@ -1526,6 +1533,7 @@ Defaults, overridable via a config file (`~/.membraid/config.yaml`), flags, or e
 | `draft_rank_factor` | `0.5` | Retrieval penalty for `draft` concepts. |
 | `fuzzy_supersede_threshold` | `0.9` | The one fuzzy knob. Dice-over-trigrams fallback for unkeyed supersession (§6.2), unkeyed distillation clustering (§8), and concept near-duplicate detection (§9), all missing on purpose below it. **Provisional**; a single number until M4's tuning pass shows a reason to split the three uses. |
 | `wire_log_commit_every` | `1h` | How often the wire log is committed to git. |
+| `metrics_every_days` | `7` (`0` = off) | What this machine's scheduled sync treats as a due observability snapshot (§18); snapshot lines land in the metrics journal. Log-only in v1; `membraid metrics` appends one regardless. |
 | `scope` | caller-derived | Step 4 of the §17 ladder - the daemon default that fires when explicit scope, hint, and (for shim-less callers) cwd are all empty. A shim always sends a `scope_hint`, so in practice this belongs to remote/REST/CLI callers; with neither hint nor default a write falls to `unscoped`. |
 | `http_tls_cert` / `http_tls_key` | unset | TLS material for remote `--http` mode; required unless a TLS-terminating proxy fronts the daemon (§11). |
 | `tokens` | `{}` | Bearer token -> fixed `source` label map for remote callers, e.g. `{"tok-xxx": {source: dsh}}` (§10). Remote writes are attributed from this map, never from a call argument. |
@@ -1537,7 +1545,8 @@ Defaults, overridable via a config file (`~/.membraid/config.yaml`), flags, or e
 > - **This machine** (`config.json` in the platform config directory):
 >   `auto_sync`, `push_delay_sec` and `pull_interval_min` (which replace
 >   `wire_log_commit_every`), `distill_every_min` (`distill_every`, minimum 5),
->   `sweep_every_days` (`sweep_every`), `embeddings`, `embed_model`, `host`.
+>   `sweep_every_days` (`sweep_every`), `metrics_every_days` (§18), `embeddings`,
+>   `embed_model`, `host`.
 > - **The vault** (`.hot/settings-<host>.json`, newest value per key wins, so
 >   every machine behaves alike): `halflife_days`, `frequency_boost`,
 >   `digest_items`, `digest_shared_weight`, `fuzzy_supersede_threshold` (default
@@ -1714,7 +1723,78 @@ writes carry their own `source`.
 
 ---
 
-## 18. What This Is Not
+## 18. Observability and the feedback loop
+
+> **"You cannot tune what you do not chart."** Every number this engine can
+> produce is a proxy: engagement - what was offered and used - not a recall
+> score. The loop's job is drift detection and direction, not a guarantee that
+> nothing is ever forgotten. It is a measured discipline: one knob at a time,
+> each change attributed, each effect read as a trend, never a single reading.
+
+**The signals already exist; only the record is new.** Nothing in this section
+invents a probe. v1 ships with:
+
+- `memory_used` reports, which feed heat (§7.2): the closest available word for
+  "retrieval worked," since it is what ranks useful memories higher.
+- `--explain`, which shows every ranking decision that produced a result.
+- Fuzzy supersessions (§6.2): an unkeyed write that replaced a current memory
+  by near-verbatim match is itself a restatement signal - an agent wrote a fact
+  that already existed without finding it. The wire log records `matchScore`
+  per replaced row, so the strongest band of "memory missed" is already there
+  as durable history.
+- `insights` (writes per source and per day, uses per source, never-retrieved
+  count, key drift from §6.3): who is writing, who is reporting use, and
+  whether vocabulary is decaying into one subject with many spellings.
+- `status` (unscoped quarantine count, sweep report from §9, vector coverage,
+  sync state): operational health, not engagement.
+
+**The metrics journal records what those signals look like over time.** It is a
+JSONL file per machine, `.hot/metrics-YYYY-MM-<host>.jsonl`, next to the wire
+log and synced through the same git. Trends must survive a rebuilt index and
+must span machines, so the journal is committed history like the wire log, not
+a rebuildable cache. Two kinds of line:
+
+- `snapshot`: current health and engagement - the status fields plus the last
+  seven days of insights, search mode and vector coverage, sync state, version.
+  Taken when the scheduled sync finds one due (`metrics_every_days`, §15) or on
+  `membraid metrics`.
+- `miss`: a write-time signal. When an unkeyed write restates a current memory
+  closely enough to suggest the search that preceded it failed - score at or
+  above the near-miss floor, below `fuzzy_supersede_threshold` (§6.2) - one
+  line records the missed memory, the score, the scope, and the source. These
+  lines are candidates, not verdicts: the Phase 2 labeler separates a real
+  missed retrieval from a deliberate echo. The band at or above the threshold
+  is not duplicated here; the wire log already carries it, `matchScore` and
+  all.
+
+**Log-only and dark in v1.** No config number is tuned by anything in this
+section, and no command reads the journal. The lines accumulate so a later
+version tunes §15 from evidence rather than taste. Committed inside the vault,
+the journal is also the one artifact a rebuild does not regenerate - which is
+the point.
+
+**Metric-to-knob table** (what a chart drift should send you to change):
+
+| Chart symptom | Knob to question |
+| --- | --- |
+| `miss` density rising in one scope or source | search for that scope; the near-miss floor; `fuzzy_supersede_threshold` (§6.2) |
+| never-retrieved share growing, heat piling on a few rows | `digest_items`, `digest_shared_weight` (§7.2) |
+| one source's writes or use reports flatline | that harness's setup; `WritesBySource`/`UsesBySource` is the smoke alarm |
+| unscoped growth in `status` (§17) | the shim's project detection; quarantine is a misconfiguration signal before it is a feature |
+| sweep yields outpace the write rate | `sweep_unused_days`, `stale_task_days` (§9, §15) |
+| vector coverage sitting at 0 | the embedder (`docs/SEARCH-EVALUATION.md`): search silently degraded to keyword |
+
+**Tuning discipline.** One knob at a time, so a chart move is attributable;
+each change logged (in this changelog or the vault's `log.md`); read only as a
+trend over the journal, never one point. **Phase 1 is the instrument, not a
+feature goal.** It is measurement only. The labeled evaluation set (Phase 2:
+miss candidates plus human corrections - the first data that can answer "is
+search better?") and any threshold change are deferred until the journal holds
+weeks of lines. Nothing in this section gates correctness.
+
+---
+
+## 19. What This Is Not
 
 - Not OKF. It borrows the good ideas (temporal supersession, lifecycle status,
   staleness, flat markdown) without the enterprise machinery. If interoperability

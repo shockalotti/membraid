@@ -105,6 +105,7 @@ next starts; the goal is the **usable** line below, not the bottom of the table.
 | Mid-session refresh: import before every tool call, background pull once the pull interval elapses | Long-lived servers (Hermes's gateway runs for days) never saw memories pulled after they started |
 | `unscoped` quarantine: a write with no project lands in `unscoped`, never `shared`; no read includes it; status, sweep and the widget count it | An agent started outside any project wrote to `shared`, so one misconfigured harness leaked into every project (SPEC §17, v1.17) |
 | Index version guard: an index built by a newer membraid is refused, schema 3 and later upgrade in place, anything older is set aside and rebuilt; `membraid reindex` rebuilds on demand | Releases let machines run different versions. The wire log is the only thing that crosses machines; opening a newer index would have silently lost what its schema added (SPEC §5.3) |
+| Observability journal (SPEC §18): `.hot/metrics-*.jsonl` per-machine `snapshot` and `miss` lines, `membraid metrics`, `metrics_every_days` | The feedback loop: trendlines for recall and engagement, and near-miss candidates when a write restated what search missed. Phase 1 is log-only and dark - nothing reads it, so nothing tunes from it yet (v1.19, outside the review loop) |
 
 ### The quality layer: in progress
 

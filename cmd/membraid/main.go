@@ -60,6 +60,7 @@ Usage:
   membraid source list [--json] | remove KEY   knowledge locations, and removing one
   membraid memories [--json] [filters]   browse current memories (--scope, --kind, --source, -n)
   membraid insights [--json] [--days N]  how memory is being used
+  membraid metrics [--report] [--days N] [--json]   append an observability snapshot (SPEC 18) or, with --report, summarise the journal
   membraid keys [--scope S] [--json]     the keys agents use, and ones that look like one subject
   membraid update [--check]              replace this binary with the latest release
 
@@ -79,6 +80,7 @@ Sync settings (membraid config set ...):
   host               (hostname)  names this machine's log file
   distill_every_min  30     how often the scheduled sync writes readable notes (5 or more)
   sweep_every_days   7      how often the scheduled sync runs upkeep
+  metrics_every_days 7      how often the scheduled sync appends an observability snapshot (0 = off)
 
 Ranking settings (also membraid config set; stored in the vault, so every machine ranks alike):
   halflife_days          30   days for a write's or a use's weight to halve
@@ -132,7 +134,8 @@ func run(args []string) error {
 	releaseTag := fs.String("version", "", "update: install this release (e.g. v0.4.0) instead of the latest")
 	replaces := fs.String("replaces", "", "write: the id of a memory this one corrects, which it replaces")
 	noTrack := fs.Bool("no-track", false, "search: a person browsing, so results are not counted as used")
-	days := fs.Int("days", 7, "insights: how many days to look back")
+	days := fs.Int("days", 7, "insights/metrics --report: how many days to look back")
+	reportOut := fs.Bool("report", false, "metrics: summarise the journal instead of appending")
 	list := fs.Bool("list", false, "install: list harnesses and whether membraid is set up in each, as JSON")
 	about := fs.String("about", "", "source add: what the location holds and when to read it")
 	login := fs.Bool("login", false, "source add: the web page needs a login")
@@ -224,6 +227,7 @@ func run(args []string) error {
 			if note := similarKeyNote(*key, similar); note != "" {
 				fmt.Fprintln(os.Stderr, "membraid: "+note)
 			}
+			recordMisses(v, cfg, res, index.Memory{Kind: *kind, Scope: res.Scope, Source: *source})
 			// A correction to a memory without a key supersedes it by id, so its
 			// history shows what replaced it rather than a bare forget.
 			if *replaces != "" && !contains(res.Superseded, *replaces) {
@@ -565,6 +569,30 @@ func run(args []string) error {
 			return nil
 		})
 
+	case "metrics":
+		return withIndex(v, cfg, func(ix *index.Index) error {
+			if *reportOut {
+				r, err := buildMetricsReport(v, ix, cfg.HostName(), *days, time.Now())
+				if err != nil {
+					return err
+				}
+				if *jsonOut {
+					return json.NewEncoder(os.Stdout).Encode(r)
+				}
+				fmt.Println(r.Text())
+				return nil
+			}
+			line, err := appendSnapshot(v, ix, cfg)
+			if err != nil {
+				return err
+			}
+			if *jsonOut {
+				return json.NewEncoder(os.Stdout).Encode(line)
+			}
+			fmt.Printf("appended an observability snapshot (SPEC 18) to %s\n", metricsPath(v, cfg, time.Now()))
+			return nil
+		})
+
 	case "memories":
 		return withIndex(v, cfg, func(ix *index.Index) error {
 			sc := "*"
@@ -810,6 +838,11 @@ func run(args []string) error {
 					fmt.Fprintln(os.Stderr, "membraid: sweep:", err)
 				} else if !*quiet {
 					fmt.Println(sweepSummary(r))
+				}
+			}
+			if *scheduled && metricsDue(cfg) {
+				if _, err := appendSnapshot(v, ix, cfg); err != nil {
+					fmt.Fprintln(os.Stderr, "membraid: metrics:", err)
 				}
 			}
 			return nil
