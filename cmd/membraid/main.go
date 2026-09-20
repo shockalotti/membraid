@@ -22,6 +22,7 @@ import (
 	"github.com/shockalotti/membraid/internal/embed"
 	"github.com/shockalotti/membraid/internal/index"
 	"github.com/shockalotti/membraid/internal/scope"
+	"github.com/shockalotti/membraid/internal/session"
 	"github.com/shockalotti/membraid/internal/vault"
 	"github.com/shockalotti/membraid/internal/vaultsync"
 	"github.com/shockalotti/membraid/internal/wirelog"
@@ -52,6 +53,7 @@ Usage:
   membraid ls | cat PATH                 browse the vault
   membraid mcp --source NAME             run as an MCP server (stdio)
   membraid install [--dry-run]           set membraid up in your agent harnesses
+  membraid doctor                       check every harness still points at a working binary
   membraid version [--json]              which release this is
   membraid reindex                       rebuild the index from the wire log (the old one is kept)
   membraid repair [--dry-run]            put back log lines this index holds but the log lost (before v0.5.3)
@@ -765,8 +767,16 @@ func run(args []string) error {
 			}
 			return err
 		})
-		if *format == "copilot" {
-			// Copilot CLI leaves out the instructions of MCP servers it has not
+		// The harness passes its SessionStart payload on stdin (session_id,
+		// source). Record the receipt, and on a resume with no prior receipt
+		// say so loudly: memory was never loaded in this session, and this
+		// digest is first contact. Never breaks the hook: no payload, no-op.
+		if id, source := session.HookPayload(); id != "" {
+			if banner := session.Check(config.Dir(), id, source); banner != "" {
+				text = banner + "\n\n" + text
+			}
+		}
+		if *format == "copilot" {			// Copilot CLI leaves out the instructions of MCP servers it has not
 			// allowlisted, so its hook carries them along with the digest.
 			return json.NewEncoder(os.Stdout).Encode(map[string]any{
 				"additionalContext": strings.TrimSpace(serverInstructions(cfg.EmbeddingsOn()) + "\n\n" + text),
@@ -969,6 +979,9 @@ func run(args []string) error {
 
 	case "install":
 		return runInstall(v, *harness, *yes, *dryRun, *binFlag, *list)
+
+	case "doctor":
+		return runDoctor()
 
 	case "mcp":
 		return runMCP(v, cfg, *source, *digestFlag)

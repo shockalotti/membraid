@@ -26,7 +26,7 @@ func codex() Target {
 				{Desc: "MCP server " + ServerName + " via codex mcp add", Apply: codexServer},
 				{Desc: "session digest: SessionStart hook in ~/.codex/hooks.json", Apply: func(e *Env) error {
 					return sessionStartHook(e.path(".codex", "hooks.json"), map[string]any{
-						"type": "command", "command": e.Bin + " context 2>/dev/null || true", "timeout": 10,
+						"type": "command", "command": digestCommand(e.Bin, ""), "timeout": 10,
 					})
 				}},
 				skillStep(filepath.Join(".agents", "skills", "membraid", "SKILL.md")),
@@ -110,7 +110,7 @@ func copilot() Target {
 					return writeOwnedJSON(e.path(".copilot", "hooks", "membraid.json"), map[string]any{
 						"version": 1,
 						"hooks": map[string]any{"sessionStart": []any{map[string]any{
-							"type": "command", "bash": e.Bin + " context --format copilot 2>/dev/null || true", "timeoutSec": 10,
+							"type": "command", "bash": digestCommand(e.Bin, "copilot"), "timeoutSec": 10,
 						}}},
 					})
 				}},
@@ -219,7 +219,7 @@ func cursor() Target {
 // file, whose entries are flat, unlike Claude Code's groups. Cursor reads only
 // JSON from a hook, so it runs the cursor format.
 func cursorHook(e *Env) error {
-	command := e.Bin + " context --format cursor 2>/dev/null || true"
+	command := digestCommand(e.Bin, "cursor")
 	return editJSON(e.path(".cursor", "hooks.json"), func(doc map[string]any) bool {
 		changed := false
 		if _, ok := doc["version"]; !ok {

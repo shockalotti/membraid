@@ -45,7 +45,7 @@ func claudeCode() Target {
 
 func claudeHook(e *Env) error {
 	return sessionStartHook(e.path(".claude", "settings.json"), map[string]any{
-		"type": "command", "command": e.Bin + " context --format claude 2>/dev/null || true", "timeout": 10,
+		"type": "command", "command": digestCommand(e.Bin, "claude"), "timeout": 10,
 		"statusMessage": "Loading membraid memory",
 	})
 }
@@ -134,7 +134,7 @@ func openCode() Target {
 						if migrateLegacy(servers) {
 							changed = true
 						}
-						want := map[string]any{"type": "local", "command": []any{e.Bin, "mcp", "--source", "opencode"}, "enabled": true}
+						want := map[string]any{"type": "local", "command": []any{e.Bin, "mcp", "--source", "opencode", "--digest"}, "enabled": true}
 						if !sameJSON(servers[ServerName], want) {
 							servers[ServerName] = want
 							changed = true

@@ -26,7 +26,7 @@ func TestCodexMigratesThroughItsCLI(t *testing.T) {
 			commands = append(commands, h.(map[string]any)["command"].(string))
 		}
 	}
-	if len(commands) != 2 || commands[0] != "echo mine" || commands[1] != bin+" context 2>/dev/null || true" {
+	if len(commands) != 2 || commands[0] != "echo mine" || commands[1] != digestCommand(bin, "") {
 		t.Errorf("want the user's hook kept and one membraid hook added, got %q", commands)
 	}
 	if got, _ := os.ReadFile(e.path(".agents", "skills", "membraid", "SKILL.md")); string(got) != skill(t) {
@@ -161,7 +161,7 @@ func TestCopilot(t *testing.T) {
 	}
 	hook := readJSON(t, e.path(".copilot", "hooks", "membraid.json"))
 	start := hook["hooks"].(map[string]any)["sessionStart"].([]any)[0].(map[string]any)
-	if hook["version"] != float64(1) || start["bash"] != bin+" context --format copilot 2>/dev/null || true" {
+	if hook["version"] != float64(1) || start["bash"] != digestCommand(bin, "copilot") {
 		t.Errorf("hook wrong: %v", hook)
 	}
 	if got, _ := os.ReadFile(e.path(".agents", "skills", "membraid", "SKILL.md")); string(got) != skill(t) {
@@ -195,7 +195,7 @@ func TestCursor(t *testing.T) {
 	for _, h := range readJSON(t, e.path(".cursor", "hooks.json"))["hooks"].(map[string]any)["sessionStart"].([]any) {
 		commands = append(commands, h.(map[string]any)["command"].(string))
 	}
-	if len(commands) != 2 || commands[0] != "echo mine" || commands[1] != bin+" context --format cursor 2>/dev/null || true" {
+	if len(commands) != 2 || commands[0] != "echo mine" || commands[1] != digestCommand(bin, "cursor") {
 		t.Errorf("want the user's hook kept and one current membraid hook, got %q", commands)
 	}
 	if got, _ := os.ReadFile(e.path(".agents", "skills", "membraid", "SKILL.md")); string(got) != skill(t) {

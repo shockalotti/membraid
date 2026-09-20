@@ -31,6 +31,38 @@ type choice struct {
 
 var stdin = bufio.NewReader(os.Stdin)
 
+// runDoctor reports whether every harness consumer still points at a working
+// binary. Read-only by design: anything stale means re-running install,
+// which replaces stale entries in place.
+func runDoctor() error {
+	home, err := os.UserHomeDir()
+	if err != nil {
+		return err
+	}
+	findings := install.Doctor(home)
+	if len(findings) == 0 {
+		fmt.Println("membraid doctor: no harness consumers found")
+		return nil
+	}
+	stale := 0
+	for _, f := range findings {
+		mark := f.State
+		note := ""
+		switch f.State {
+		case "stale":
+			mark = "STALE"
+			stale++
+		case "legacy":
+			note = " (works today, silent if the binary moves)"
+		}
+		fmt.Printf("%-14s %-50s %s%s\n  -> %s\n", f.Consumer, f.File, mark, note, f.Pointer)
+	}
+	if stale > 0 {
+		return fmt.Errorf("%d stale pointer(s): re-run membraid install to repair", stale)
+	}
+	return nil
+}
+
 // runInstall sets membraid up in the harnesses the user picks: asks which
 // (defaulting to the ones found on this machine), shows exactly what will
 // change, and applies it. Safe to run again after upgrading or moving the

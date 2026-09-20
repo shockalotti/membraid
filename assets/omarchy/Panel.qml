@@ -25,13 +25,40 @@ Panel {
   readonly property color foreground: bar ? bar.foreground : Color.foreground
   readonly property color dim: Qt.darker(foreground, 1.55)
   readonly property color urgent: bar && bar.urgent ? bar.urgent : Color.urgent
+  readonly property color amber: bar && bar.warning ? bar.warning : "#b98a3c"
+  // Icon severity, red wins: broken plumbing (sync, binary, orphans) is red,
+  // unfinished business (open or stale tasks) is yellow, neither is dim.
+  readonly property bool hasUrgent: root.syncFailed || root.binMissing || status.unscoped > 0
+  readonly property bool hasAction: root.doing.length > 0 || root.staleCount > 0
   readonly property string fontFamily: bar ? bar.fontFamily : Style.font.family
   readonly property string home: Quickshell.env("HOME") || ""
   // Quickshell does not inherit a login shell's PATH, so the binary is found
   // rather than assumed. A blank setting means the go install location.
+  // The install rewrites the first candidate to the true installed path; the
+  // rest cover where Go puts it next. If the binary moves again, the probe
+  // below finds it — and if nothing resolves, the panel says so loudly
+  // instead of showing an empty widget.
+  readonly property var binCandidates: [
+    home + "/go/bin/membraid",
+    home + "/.local/share/go/bin/membraid",
+    "/usr/local/bin/membraid"
+  ]
+  property string binResolved: ""
+  property bool binMissing: false
+  property bool binProbed: false
   readonly property string binary: {
     var configured = setting("binary", "")
-    return configured !== "" ? configured : home + "/go/bin/membraid"
+    if (configured !== "") return configured
+    if (root.binResolved !== "") return root.binResolved
+    return root.binCandidates[0]
+  }
+  // First executable wins: explicit candidates, then whatever is on PATH.
+  // On success everything reloads against the resolved binary; on failure
+  // binMissing drives the banner in attention(), never a silent empty panel.
+  function probeBinary() {
+    var args = ["sh", "-c", 'for b in "$@"; do [ -x "$b" ] && { echo "$b"; exit 0; }; done; command -v membraid 2>/dev/null; exit 0', "membraid-probe"].concat(root.binCandidates)
+    binProbeProcess.command = args
+    binProbeProcess.running = true
   }
 
   // ---------- State, all read from membraid ----------
@@ -58,11 +85,15 @@ Panel {
   // Memories tab
   property string memScope: ""
   property string memKind: ""
+  property int memLimit: 20
   property bool rememberOpen: false
   property string rememberKind: "preference"
   property string rememberScope: "shared"
   property string correctingId: ""
   property string confirmForgetId: ""
+  // A memory whose scope resolves to no project (an orphan), waiting for the
+  // user to pick the project it belongs to. Empty = not picking for anyone.
+  property string attachProjectId: ""
 
   // Settings tab: ranking tuning
   property bool tuningOpen: false
@@ -99,6 +130,15 @@ Panel {
     return scope
   }
 
+  // An orphan is a memory no project reads: unscoped buckets, or a scope
+  // that matches no known project. The Attach picker shows only for these.
+  function isScoped(m) {
+    if (!m || !m.scope || m.scope === "shared" || m.scope === "unscoped") return false
+    for (var i = 0; i < root.projects.length; i++)
+      if (root.projects[i].scope === m.scope) return true
+    return false
+  }
+
   function kindLabel(kind) {
     return ({ preference: "preference", project_param: "project value", insight: "insight", task_state: "task" })[kind] || kind
   }
@@ -121,6 +161,7 @@ Panel {
   // Things worth a look, most urgent first. Empty most of the time.
   function attention() {
     var out = []
+    if (root.binMissing) out.push({ text: "membraid binary not found (looked on PATH and in " + root.binCandidates.join(", ") + ") — set it in plugin settings or re-run membraid install", urgent: true })
     if (root.syncFailed) out.push({ text: "Sync failed: " + sync.last_error, urgent: true })
     if (search.mode === "vector" && search.embedded < search.current)
       out.push({ text: (search.current - search.embedded) + " memories are not searchable by meaning yet", urgent: false, action: ["embed", "--quiet"], actionLabel: "Embed now" })
@@ -141,6 +182,7 @@ Panel {
 
   function loadTab() {
     root.nowMs = Date.now()
+    if (!root.binProbed) { root.binProbed = true; root.probeBinary() }
     refreshStatus()
     load(projectsProcess)
     if (root.tab === "projects") load(sourcesProcess)
@@ -155,7 +197,7 @@ Panel {
     if (q !== "") {
       cmd = cmd.concat(["search", q, "--json", "--no-track", "-n", "30", "--scope", root.memScope !== "" ? root.memScope : "*"])
     } else {
-      cmd = cmd.concat(["memories", "--json", "-n", "60"])
+      cmd = cmd.concat(["memories", "--json", "-n", String(root.memLimit)])
       if (root.memScope !== "") cmd = cmd.concat(["--scope", root.memScope])
       if (root.memKind !== "") cmd = cmd.concat(["--kind", root.memKind])
     }
@@ -310,6 +352,23 @@ Panel {
   }
 
   // ---------- Processes ----------
+  Process {
+    id: binProbeProcess
+    stdout: StdioCollector {
+      waitForEnd: true
+      onStreamFinished: {
+        var hit = text.trim().split("\n")[0] || ""
+        if (hit !== "") {
+          root.binResolved = hit
+          root.binMissing = false
+          root.loadTab()
+        } else {
+          root.binMissing = true
+        }
+      }
+    }
+  }
+
   Process {
     id: statusProcess
     // "--scope *": the bar is not standing in any project, so it shows all of them.
@@ -469,7 +528,8 @@ Panel {
     anchors.fill: parent
     bar: root.bar
     text: "\udb82\uddd1" // U+F09D1 nf-md-brain. Escaped, never literal: a literal glyph has been mangled on the way into this file twice.
-    active: root.doing.length > 0 || root.syncFailed
+    active: root.hasUrgent || root.hasAction
+    activeColor: root.hasUrgent ? root.urgent : root.amber
     onPressed: function(buttonCode) { root.toggle() }
   }
 
@@ -750,8 +810,9 @@ Panel {
                 label: "Project"
                 showLabel: false
                 value: root.memScope
-                options: [{ value: "", label: "All projects" }].concat(root.projects.map(function(p) { return { value: p.scope, label: p.name } }))
-                onChanged: function(v) { root.memScope = v; root.loadMemories() }
+                options: [{ value: "", label: "All projects" }]
+                       .concat(root.projects.map(function(p) { return { value: p.scope, label: p.scope === "shared" ? "Shared / no project" : (p.name + (p.path ? "" : " (no folder)")) } }))
+                onChanged: function(v) { root.memScope = v; root.memLimit = 20; root.loadMemories() }
               }
               Dropdown {
                 width: (parent.width - parent.spacing) / 2
@@ -766,7 +827,7 @@ Panel {
                   { value: "insight", label: "Insights" },
                   { value: "task_state", label: "Tasks" }
                 ]
-                onChanged: function(v) { root.memKind = v; root.loadMemories() }
+                onChanged: function(v) { root.memKind = v; root.memLimit = 20; root.loadMemories() }
               }
             }
 
@@ -862,13 +923,47 @@ Panel {
                     onActivated: root.confirmForgetId = ""
                   }
                   Link {
+                    visible: root.attachProjectId === memItem.m.id
+                    text: "Cancel"
+                    onActivated: { root.attachProjectId = ""; keyCatcher.forceActiveFocus() }
+                  }
+                  Link {
+                    visible: !memItem.correcting && root.confirmForgetId !== memItem.m.id && root.attachProjectId !== memItem.m.id
+                    text: root.isScoped(memItem.m) ? "Move to project" : "Attach to project"
+                    onActivated: { root.confirmForgetId = ""; root.attachProjectId = memItem.m.id }
+                  }
+                  Link {
                     visible: !!memItem.m.concept && !memItem.correcting
                     text: "Open note"
                     onActivated: root.openPath(root.vaultPath + "/" + memItem.m.concept)
                   }
                 }
+                Column {
+                  visible: root.attachProjectId === memItem.m.id
+                  width: memItem.width
+                  spacing: Style.space(4)
+                  SearchableDropdown {
+                    width: parent.width
+                    label: "Attach to"
+                    showLabel: false
+                    value: ""
+                    options: [{ value: "", label: "Choose project…" }].concat(root.projects.filter(function(p) { return p.scope !== memItem.m.scope && p.scope !== "unscoped" })
+                                          .map(function(p) { return { value: p.scope, label: p.scope === "shared" ? "Shared / no project" : (p.name + (p.path ? "" : " (no folder)")) } }))
+                    onChanged: function(v) {
+                      if (v === "") return
+                      root.attachProjectId = ""
+                      root.runAction(["rescope", "--id", memItem.m.id, "--from", memItem.m.scope, "--scope", v])
+                    }
+                  }
+                }
                 PanelSeparator { width: parent.width; opacity: 0.4 }
               }
+            }
+            Link {
+              visible: searchField.text.trim() === "" && root.memories.length >= root.memLimit
+              text: "Show more (" + root.memories.length + " shown)"
+              font.pixelSize: Style.font.body
+              onActivated: { root.memLimit = root.memLimit + 20; root.loadMemories() }
             }
           }
 

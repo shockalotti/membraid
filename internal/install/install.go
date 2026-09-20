@@ -17,6 +17,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"time"
 
@@ -204,6 +205,23 @@ func pointAt(placeholder, value string) func(string) (string, error) {
 		}
 		return strings.ReplaceAll(s, placeholder, value), nil
 	}
+}
+
+// digestCommand builds the session-digest hook command run when a session
+// starts. The binary moves — Go relocates it, people standardise their own
+// layout — while every hook holds the absolute path from install day, so the
+// command resolves dynamically: PATH first, the install-time path as the
+// fallback. And when nothing resolves it says so on stderr, where the harness
+// shows it, instead of failing silently: a session starting without its
+// digest must be visible, never quiet.
+func digestCommand(bin, format string) string {
+	resolve := `B=$(command -v membraid 2>/dev/null); [ -n "$B" ] || B=` + strconv.Quote(bin)
+	warn := `echo "membraid: no working binary (tried PATH and ` + bin + `); re-run membraid install to repair" >&2`
+	args := "context"
+	if format != "" {
+		args += " --format " + format
+	}
+	return resolve + `; "$B" ` + args + ` 2>/dev/null || ` + warn
 }
 
 // jsonHas reports whether a JSON file holds a value at the given object path,

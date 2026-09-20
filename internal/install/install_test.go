@@ -123,8 +123,8 @@ func TestClaudeCodeMigratesPreservesAndIsIdempotent(t *testing.T) {
 			cmd := h.(map[string]any)["command"].(string)
 			if strings.Contains(cmd, "membraid") {
 				membraidHooks++
-				if !strings.HasPrefix(cmd, bin+" context") {
-					t.Errorf("hook not repointed: %s", cmd)
+				if cmd != digestCommand(bin, "claude") {
+					t.Errorf("stale hook not repointed at the resolving command: %s", cmd)
 				}
 			} else {
 				unrelated++
@@ -177,11 +177,14 @@ func TestOpenCode(t *testing.T) {
 	if _, ok := servers["memory"]; ok {
 		t.Error("legacy entry must be migrated")
 	}
-	if cmd := toStrings(servers["membraid"].(map[string]any)["command"]); cmd[0] != bin || cmd[len(cmd)-1] != "opencode" {
+	// The digest rides the server instructions: opencode's system.transform
+	// hook has silently discarded pushed digests, so the MCP route must not
+	// depend on it.
+	if cmd := toStrings(servers["membraid"].(map[string]any)["command"]); cmd[0] != bin || strings.Join(cmd[1:], " ") != "mcp --source opencode --digest" {
 		t.Errorf("membraid entry wrong: %v", cmd)
 	}
 	plugin, _ := os.ReadFile(e.path(".config", "opencode", "plugins", "membraid.js"))
-	if !strings.Contains(string(plugin), `"`+bin+`"`) || strings.Contains(string(plugin), "go/bin/membraid") {
+	if !strings.Contains(string(plugin), `"`+bin+`"`) || strings.Contains(string(plugin), "`${process.env.HOME}/go/bin/membraid`") {
 		t.Errorf("plugin must point at the installed binary:\n%s", plugin)
 	}
 	if _, err := os.Stat(e.path(".claude", "skills", "membraid", "SKILL.md")); err != nil {

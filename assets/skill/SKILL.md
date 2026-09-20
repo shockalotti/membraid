@@ -108,6 +108,12 @@ be closed: `memory_done` with its id.
 
 ## Reading
 
+- **On resume, verify the digest is in your context.** A resumed session
+  should open with membraid's digest. If it is absent — no digest text, no
+  memory briefing anywhere above — memory was never loaded here: run
+  `membraid context` (or `memory_search` for the task at hand) before
+  answering. The hook delivers it; this rule is the backstop for when the
+  hook itself failed.
 - **At the start of real work**, search for the area you are touching.
 - **Before asking the user something**, check whether they already told
   another agent.
