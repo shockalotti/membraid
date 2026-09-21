@@ -130,10 +130,12 @@ Panel {
     return scope
   }
 
-  // An orphan is a memory no project reads: unscoped buckets, or a scope
-  // that matches no known project. The Attach picker shows only for these.
+  // An orphan is a memory no project reads: the unscoped quarantine bucket,
+  // or a scope that matches no known project. Shared is a legitimate
+  // workspace-wide scope, not an orphan. The Move picker stays available on
+  // every row for voluntary moves.
   function isScoped(m) {
-    if (!m || !m.scope || m.scope === "shared" || m.scope === "unscoped") return false
+    if (!m || !m.scope || m.scope === "unscoped") return false
     for (var i = 0; i < root.projects.length; i++)
       if (root.projects[i].scope === m.scope) return true
     return false
