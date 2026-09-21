@@ -45,18 +45,29 @@ func TestDoctorClassifiesEveryConsumer(t *testing.T) {
 	// Widget fallback pointing at the corpse.
 	mkhome(".config/omarchy/plugins/shockalotti.membraid/Panel.qml",
 		"readonly property var binCandidates: [\n    \""+dead+"\",\n]\n", 0o644)
+	// Hermes YAML entry, live; Grok TOML entry, dead.
+	mkhome(".hermes/config.yaml",
+		"mcp_servers:\n  membraid:\n    command: "+liveBin+"\n    args: [mcp]\n", 0o644)
+	mkhome(".grok/config.toml",
+		"[mcp_servers.membraid]\ncommand = \""+dead+"\"\nargs = [\"mcp\"]\n", 0o644)
+	// OpenCode plugin JS holding the installed path.
+	mkhome(".config/opencode/plugins/membraid.js",
+		"const bin = process.env.MEMBRAID_BIN || \""+liveBin+"\"\n", 0o644)
 
 	got := map[string]string{}
 	for _, f := range Doctor(home) {
 		got[f.Consumer] = f.State
 	}
 	want := map[string]string{
-		"claude hook":    "stale",
-		"codex hooks":    "legacy",
-		"cursor hooks":   "self-healing",
-		"claude mcp":     "live",
-		"cursor mcp":     "stale",
-		"omarchy widget": "stale",
+		"claude hook":     "stale",
+		"codex hooks":     "legacy",
+		"cursor hooks":    "self-healing",
+		"claude mcp":      "live",
+		"cursor mcp":      "stale",
+		"omarchy widget":  "stale",
+		"hermes mcp":      "live",
+		"grok mcp":        "stale",
+		"opencode plugin": "live",
 	}
 	for consumer, state := range want {
 		if got[consumer] != state {

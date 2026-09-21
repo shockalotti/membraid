@@ -62,6 +62,19 @@ func Doctor(home string) []Finding {
 	if bin, ok := widgetBinary(join(".config", "omarchy", "plugins", "shockalotti.membraid", "Panel.qml")); ok {
 		out = append(out, Finding{Consumer: "omarchy widget", File: ".config/omarchy/plugins/shockalotti.membraid/Panel.qml", Pointer: bin, State: commandState(bin)})
 	}
+
+	// Hermes and Grok keep their MCP entries outside JSON: YAML and TOML.
+	// A doctor blind to them reports "nothing" on machines whose whole job
+	// is consuming, which teaches distrust in the tool.
+	if bin, ok := hermesCommand(join(".hermes", "config.yaml")); ok {
+		out = append(out, Finding{Consumer: "hermes mcp", File: ".hermes/config.yaml", Pointer: bin, State: commandState(bin)})
+	}
+	if bin, ok := grokCommand(join(".grok", "config.toml")); ok {
+		out = append(out, Finding{Consumer: "grok mcp", File: ".grok/config.toml", Pointer: bin, State: commandState(bin)})
+	}
+	if bin, ok := opencodePluginBinary(join(".config", "opencode", "plugins", "membraid.js")); ok {
+		out = append(out, Finding{Consumer: "opencode plugin", File: ".config/opencode/plugins/membraid.js", Pointer: bin, State: commandState(bin)})
+	}
 	return out
 }
 
@@ -155,6 +168,50 @@ func mcpCommand(path string, keys []string) (string, bool) {
 }
 
 var widgetBinRe = regexp.MustCompile(`"([^"]*membraid[^"]*)"`)
+var tomlCommandRe = regexp.MustCompile(`(?m)^command\s*=\s*"([^"]+)"`)
+
+// hermesCommand reads the membraid MCP command from Hermes YAML config.
+func hermesCommand(path string) (string, bool) {
+	doc, err := readYAMLMap(path)
+	if err != nil {
+		return "", false
+	}
+	servers, _ := doc["mcp_servers"].(map[string]any)
+	entry, _ := servers[ServerName].(map[string]any)
+	cmd, _ := entry["command"].(string)
+	if cmd == "" {
+		return "", false
+	}
+	return cmd, true
+}
+
+// grokCommand reads the membraid MCP command from Grok's TOML config.
+func grokCommand(path string) (string, bool) {
+	section, ok := tomlSection(path, "mcp_servers."+ServerName)
+	if !ok {
+		return "", false
+	}
+	m := tomlCommandRe.FindStringSubmatch(section)
+	if m == nil {
+		return "", false
+	}
+	return m[1], true
+}
+
+// opencodePluginBinary reads the binary the plugin spawns for digests: the
+// first quoted membraid path in the file.
+func opencodePluginBinary(path string) (string, bool) {
+	raw, err := os.ReadFile(path)
+	if err != nil {
+		return "", false
+	}
+	for _, line := range strings.Split(string(raw), "\n") {
+		if m := widgetBinRe.FindStringSubmatch(line); m != nil && strings.Contains(m[1], "/") {
+			return m[1], true
+		}
+	}
+	return "", false
+}
 
 // widgetBinary reads the installed binary path the widget falls back to: the
 // first quoted membraid path in the binary block (the rewritten first
