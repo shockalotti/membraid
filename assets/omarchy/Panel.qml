@@ -36,7 +36,7 @@ Panel {
   // rather than assumed. A blank setting means the go install location.
   // The install rewrites the first candidate to the true installed path; the
   // rest cover where Go puts it next. If the binary moves again, the probe
-  // below finds it — and if nothing resolves, the panel says so loudly
+  // below finds it - and if nothing resolves, the panel says so loudly
   // instead of showing an empty widget.
   readonly property var binCandidates: [
     home + "/go/bin/membraid",
@@ -163,7 +163,7 @@ Panel {
   // Things worth a look, most urgent first. Empty most of the time.
   function attention() {
     var out = []
-    if (root.binMissing) out.push({ text: "membraid binary not found (looked on PATH and in " + root.binCandidates.join(", ") + ") — set it in plugin settings or re-run membraid install", urgent: true })
+    if (root.binMissing) out.push({ text: "membraid binary not found (looked on PATH and in " + root.binCandidates.join(", ") + ") - set it in plugin settings or re-run membraid install", urgent: true })
     if (root.syncFailed) out.push({ text: "Sync failed: " + sync.last_error, urgent: true })
     if (search.mode === "vector" && search.embedded < search.current)
       out.push({ text: (search.current - search.embedded) + " memories are not searchable by meaning yet", urgent: false, action: ["embed", "--quiet"], actionLabel: "Embed now" })

@@ -6,7 +6,7 @@ import (
 	"testing"
 )
 
-// The binary moves — Go relocates it, people standardise their own layout —
+// The binary moves - Go relocates it, people standardise their own layout -
 // while every hook holds the absolute path from install day. The digest
 // command must resolve dynamically and, when nothing resolves, say so where
 // the harness shows it instead of failing silently.

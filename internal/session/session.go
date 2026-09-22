@@ -34,8 +34,8 @@ type Receipt struct {
 // HookPayload reads a SessionStart hook payload from stdin: the harness
 // passes session_id and source (startup, resume, clear, compact) there.
 // Harnesses without hook payloads (the OpenCode plugin) pass the session id
-// through MEMBRAID_SESSION_ID instead. Empty strings when there is neither —
-// a terminal, an empty pipe, no env — so callers treat that as "not a hook".
+// through MEMBRAID_SESSION_ID instead. Empty strings when there is neither -
+// a terminal, an empty pipe, no env - so callers treat that as "not a hook".
 func HookPayload() (sessionID, source string) {
 	if id := os.Getenv("MEMBRAID_SESSION_ID"); id != "" {
 		return id, ""
@@ -61,7 +61,7 @@ func HookPayload() (sessionID, source string) {
 // needs the loud banner: no prior receipt means memory was never loaded in
 // this session, whatever the source, and the digest that follows is first
 // contact. Harness hooks always name their source; plugin harnesses pass
-// none, and an unseen session with no source gets the banner too — a fresh
+// none, and an unseen session with no source gets the banner too - a fresh
 // session hearing it once is the price of never staying silent. Empty
 // sessionID means not a hook; nothing is recorded, no banner.
 func Check(dir, sessionID, source string) string {
@@ -81,7 +81,7 @@ func Check(dir, sessionID, source string) string {
 	}
 	save(dir, ledger)
 	if !seen && (source == "resume" || source == "") {
-		return "MEMORY NEVER LOADED IN THIS SESSION — no digest was ever delivered here, so the digest below is first contact with shared memory. Read it before answering."
+		return "MEMORY NEVER LOADED IN THIS SESSION - no digest was ever delivered here, so the digest below is first contact with shared memory. Read it before answering."
 	}
 	return ""
 }

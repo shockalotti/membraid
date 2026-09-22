@@ -208,8 +208,8 @@ func pointAt(placeholder, value string) func(string) (string, error) {
 }
 
 // digestCommand builds the session-digest hook command run when a session
-// starts. The binary moves — Go relocates it, people standardise their own
-// layout — while every hook holds the absolute path from install day, so the
+// starts. The binary moves - Go relocates it, people standardise their own
+// layout - while every hook holds the absolute path from install day, so the
 // command resolves dynamically: PATH first, the install-time path as the
 // fallback. And when nothing resolves it says so on stderr, where the harness
 // shows it, instead of failing silently: a session starting without its

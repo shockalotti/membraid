@@ -8,7 +8,7 @@ import (
 )
 
 // A moved binary must show up as stale with the repair, a resolving hook as
-// self-healing, and a live absolute path as live — never silently fine.
+// self-healing, and a live absolute path as live - never silently fine.
 func TestDoctorClassifiesEveryConsumer(t *testing.T) {
 	home := t.TempDir()
 	mkhome := func(rel, body string, mode os.FileMode) {
@@ -28,12 +28,12 @@ func TestDoctorClassifiesEveryConsumer(t *testing.T) {
 	// Stale: old silent-form hook pointing at the corpse.
 	mkhome(".claude/settings.json",
 		`{"hooks": {"SessionStart": [{"hooks": [{"type": "command", "command": "`+dead+` context --format claude 2>/dev/null || true"}]}]}}`, 0o644)
-	// Legacy: old silent form, but the path still executes — alive today,
+	// Legacy: old silent form, but the path still executes - alive today,
 	// silent the day the binary moves.
 	mkhome(".codex/hooks.json",
 		`{"hooks": {"SessionStart": [{"hooks": [{"type": "command", "command": "`+liveBin+` context 2>/dev/null || true"}]}]}}`, 0o644)
 	// Self-healing: the resolving form install now writes (JSON-encoded,
-	// like the real writers produce — the raw command holds quotes).
+	// like the real writers produce - the raw command holds quotes).
 	q, _ := json.Marshal(digestCommand(dead, "cursor"))
 	mkhome(".cursor/hooks.json",
 		`{"hooks": {"sessionStart": [{"command": `+string(q)+`}]}}`, 0o644)

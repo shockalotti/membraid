@@ -15,7 +15,7 @@ import (
 // A pointer is self-healing when it resolves dynamically (the digest command
 // tries PATH before its install-time fallback), live when its absolute path
 // still executes, and stale when it names a binary that is gone. Stale used
-// to be silent — sessions started without their digest and nobody was told —
+// to be silent - sessions started without their digest and nobody was told -
 // so doctor exits non-zero when anything is stale.
 type Finding struct {
 	Consumer string // e.g. "claude hook"

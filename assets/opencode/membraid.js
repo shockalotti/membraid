@@ -7,7 +7,7 @@
 // let the digest shift mid-conversation as the agent writes to memory.
 //
 // Two rules the failures taught: a binary that moves must be found, not
-// assumed — and an empty digest is never cached, so one failed load cannot
+// assumed - and an empty digest is never cached, so one failed load cannot
 // poison the session forever. Any failure is logged loudly rather than
 // swallowing the session's memory quietly.
 //
