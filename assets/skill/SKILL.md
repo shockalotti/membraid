@@ -21,6 +21,26 @@ Before writing, ask: **would a future session - possibly a different agent,
 on a different machine, with none of this conversation - do better work for
 knowing this?** If not, do not write it.
 
+## When to write
+
+The one test says *what* passes. This says *when* - most misses happen
+because the write never gets a moment. Give it three:
+
+- **Write on close-out phrases.** The user saying "we are good", "not now",
+  "defer that", "agreed", or accepting your analysis with no follow-up is the
+  trigger. That turn produced a decision, a deferral, or a verdict - write it
+  then, not later. A deferred item is still a write: record the decision to
+  defer and why, so the next session does not re-litigate it.
+- **Write-then-announce, never ask permission.** Do not end with "anything
+  worth committing?" - that hands your job to the user and the write dies
+  there. If it passes the one test, call `memory_write` first, then say what
+  you recorded in one line as part of the answer.
+- **End-of-answer scan, every turn.** Before you finish a reply, ask: did this
+  turn produce a decision, a concrete project value, or a correction to how I
+  work? If yes, write it. And did a memory change what I just did? If yes,
+  call `memory_used` with its id or key - relying on a memory without
+  reporting it is the miss this rule exists to prevent.
+
 ## What is worth remembering
 
 | Write it | Do not write it |
