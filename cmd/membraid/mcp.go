@@ -300,7 +300,7 @@ func (s *mcpServer) instructions() string {
 // habits, and the tool descriptions carry the mechanics.
 //
 // Kept short: it is in the prompt of every session.
-const serverInstructionsTemplate = `membraid is the user's shared memory across every agent they use and every machine they work on. What you record here, their other agents will see.
+const serverInstructionsTemplate = `membraid is the user's shared memory, stored centrally for every agent they use, on every machine. What you write here is surfaced in this project's digest and searchable from anywhere - it does not notify or interrupt other agents. The session digest holds this project plus shared; other projects are found with memory_search, not automatically.
 
 Read:
 - Before asking the user something they may already have told an agent, or starting work on a project, call memory_search.
@@ -367,7 +367,7 @@ func toolDefs(semantic bool) []map[string]any {
 		{
 			"name": "memory_write",
 			"description": "Record something worth remembering across sessions and across agents. " +
-				"This memory is shared: what you write here is visible to every other agent the user runs, on every machine. " +
+				"Stored centrally, surfaced in this project's digest, searchable from anywhere. Writing here does not notify or interrupt other agents. " +
 				keyGuidance,
 			"inputSchema": map[string]any{
 				"type":     "object",

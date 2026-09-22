@@ -5,9 +5,11 @@ description: Use when recording, retrieving or maintaining the user's shared mem
 
 # membraid
 
-membraid is the user's memory across every agent they run and every machine
-they work on. What you write, their other agents read - Claude Code today,
-OpenCode tomorrow, Hermes on another machine next week.
+membraid is the user's memory, stored centrally for every agent they run and
+every machine they work on. What you write is surfaced in this project's
+digest and searchable from anywhere - it does not notify or interrupt other
+agents. The session digest holds this project plus shared; other projects are
+found with memory_search, not automatically.
 
 You already have the basics: the server's instructions tell you when to write,
 and the session starts with a digest of open tasks and known facts. This skill
