@@ -45,7 +45,7 @@ func Doctor(home string) []Finding {
 
 	mcpFiles := []struct {
 		consumer, rel string
-		keys         []string
+		keys          []string
 	}{
 		{"claude mcp", ".claude.json", []string{"mcpServers"}},
 		{"cursor mcp", ".cursor/mcp.json", []string{"mcpServers"}},
