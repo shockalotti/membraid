@@ -24,6 +24,33 @@ export const Membraid = async ({ $, directory }) => {
   ]
   const digests = new Map()
 
+  // A one-line write scan rides every digest push. Skill paragraphs rot under
+  // task context (front-load decay); this line is read now, at the moment it
+  // applies. It joins the push, never the stored digest, so the digest itself
+  // cannot shift mid-conversation. Where the harness discards transform pushes
+  // (opencode 1.18.31 did), this line is discarded with the digest - the MCP
+  // search/get trailers are the channel that cannot be dropped.
+  const scanLine =
+    "Memory scan before you finish: a decision, discovery, or correction this turn gets a memory_write; a memory that guided you gets a memory_used."
+
+  // Telemetry for the write-compliance question: one line per push, so pushes
+  // can be correlated with later writes by session and time. Telemetry never
+  // breaks the turn; a failed log is silent.
+  const nudgeLog = async (sessionID) => {
+    try {
+      const entry = JSON.stringify({
+        ts: new Date().toISOString(),
+        channel: "opencode-push",
+        session: String(sessionID ?? "default"),
+      })
+      await $`printf '%s\n' ${entry} >> ${process.env.HOME}/.membraid/nudge.jsonl`
+        .quiet()
+        .nothrow()
+    } catch {
+      // telemetry is expendable
+    }
+  }
+
   const resolveBin = async () => {
     if (process.env.MEMBRAID_BIN) return process.env.MEMBRAID_BIN
     for (const c of candidates) {
@@ -76,7 +103,10 @@ export const Membraid = async ({ $, directory }) => {
         if (digest) digests.set(key, digest)
       }
       const digest = digests.get(key)
-      if (digest) output.system.push(digest)
+      if (digest) {
+        output.system.push(digest + "\n\n" + scanLine)
+        await nudgeLog(key)
+      }
     },
   }
 }

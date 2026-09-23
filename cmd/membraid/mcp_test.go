@@ -161,6 +161,13 @@ func TestMCPSeesMemoriesThatArriveMidSession(t *testing.T) {
 
 	if txt := toolText(t, call(search)); !strings.Contains(txt, "fly.io") {
 		t.Errorf("a memory pulled mid-session must be searchable without a restart, got %q", txt)
+	} else if !strings.Contains(txt, "call memory_used") {
+		t.Errorf("search results must carry the write-scan trailer, got %q", txt)
+	}
+
+	get := `{"jsonrpc":"2.0","id":3,"method":"tools/call","params":{"name":"memory_get","arguments":{"key":"deploy.target","scope":"*"}}}`
+	if txt := toolText(t, call(get)); !strings.Contains(txt, "fly.io") || !strings.Contains(txt, "call memory_write") {
+		t.Errorf("memory_get must answer and carry the write-scan trailer, got %q", txt)
 	}
 }
 

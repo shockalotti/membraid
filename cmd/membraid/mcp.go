@@ -322,6 +322,14 @@ Wrong: write the right answer under the same key, which replaces it. If nothing 
 
 Do not record: routine chatter, anything already in the code or git history, or secrets. Memory is synced to a git remote - never store passwords, tokens, API keys or credentials.`
 
+// memoryTrailer refreshes the write habit at the moment memory is in play.
+// Skill paragraphs rot under task context (front-load decay); a tool result
+// cannot rot, because the model is reading it now. One line, no exceptions:
+// it rides the result channel, which no harness version can discard without
+// discarding the answer itself.
+const memoryTrailer = "If any of these guided you, call memory_used; " +
+	"if you learned something new this turn, call memory_write."
+
 const keyGuidance = "Give a `key` whenever the fact has a subject that can change: a later " +
 	"write with the same key replaces this one instead of competing with it. " +
 	"Use a dotted lowercase noun path, most general part first - editor.theme, " +
@@ -580,6 +588,7 @@ func (s *mcpServer) callTool(req rpcRequest) {
 			b.WriteString("] " + h.Content + " (" + h.Scope + ", via " + h.Source + ", id " + h.ID)
 			b.WriteString(")\n")
 		}
+		b.WriteString(memoryTrailer + "\n")
 		s.text(req.ID, strings.TrimRight(b.String(), "\n"), false)
 
 	case "memory_used":
@@ -635,6 +644,7 @@ func (s *mcpServer) callTool(req rpcRequest) {
 			s.text(req.ID, "No current answer for "+a.Key+".", false)
 			return
 		}
+		b.WriteString(memoryTrailer + "\n")
 		s.text(req.ID, strings.TrimRight(b.String(), "\n"), false)
 
 	default:
