@@ -1,2 +1,4 @@
 /memory-engine
 /dist/
+__pycache__/
+*.pyc
