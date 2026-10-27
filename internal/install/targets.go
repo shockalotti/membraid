@@ -105,6 +105,13 @@ func sessionStartHook(path string, want map[string]any) error {
 	})
 }
 
+// opencodeBinPlaceholder is the first entry of the plugin's binary candidates,
+// replaced at install time with the real path. Tests assert it appears exactly
+// once: if the template's candidate list is edited without updating this, the
+// rewrite can land in a comment and leave the plugin pointing at a path that
+// does not exist - which fails quietly in a user's session.
+const opencodeBinPlaceholder = "`${process.env.HOME}/go/bin/membraid`"
+
 func openCode() Target {
 	return Target{
 		ID: "opencode", Name: "OpenCode",
@@ -145,7 +152,7 @@ func openCode() Target {
 				}},
 				{Desc: "session digest: plugin at ~/.config/opencode/plugins/membraid.js", Apply: func(e *Env) error {
 					return writeAsset("opencode/membraid.js", filepath.Join(dir, "plugins", "membraid.js"),
-						pointAt("`${process.env.HOME}/go/bin/membraid`", strconv.Quote(e.Bin)))
+						pointAt(opencodeBinPlaceholder, strconv.Quote(e.Bin)))
 				}},
 				skillStep(filepath.Join(".claude", "skills", "membraid", "SKILL.md")),
 			}
